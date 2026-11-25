@@ -6,7 +6,6 @@ is the action of its final turn. Reports action accuracy plus escalation
 precision/recall/F1, overall and per split (dev/test).
 """
 import json
-import tempfile
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
@@ -15,20 +14,21 @@ BASE = Path(__file__).resolve().parent
 def run_evaluation(store_factory=None):
     from agent.data_store import Store
     from agent.engine import Engine
-    factory = store_factory or (lambda p: Store(p))
+    factory = store_factory or (lambda p: Store(p, seed_admin=False))
     data = json.loads((BASE / "data" / "conversations.json")
                       .read_text(encoding="utf-8-sig"))
     convs = data["conversations"]
     rows = []
     for c in convs:
-        with tempfile.TemporaryDirectory() as td:
-            st = factory(str(Path(td) / "eval.db"))
-            eng = Engine(st)
-            pred = None
-            for turn in c["turns"]:
-                if turn["speaker"] == "customer":
-                    pred = eng.handle(f"eval-{c['conv_id']}", turn["text"])["trace"]
-            st.close()
+        # a fresh in-memory database per conversation (same guarantee as a
+        # temp file, without the disk syncs)
+        st = factory(":memory:")
+        eng = Engine(st)
+        pred = None
+        for turn in c["turns"]:
+            if turn["speaker"] == "customer":
+                pred = eng.handle(f"eval-{c['conv_id']}", turn["text"])["trace"]
+        st.close()
         exp = c["expected"]
         rows.append({
             "conv_id": c["conv_id"], "split": c.get("split"),

@@ -1,80 +1,412 @@
 {
-  "test_accuracy": 0.7308,
-  "n_dev": 120,
-  "n_test": 52,
-  "classification_report": {
-    "answer_policy": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1-score": 1.0,
-      "support": 6.0
+  "model": "TF-IDF (word 1-2 grams + char 3-4 grams) + multinomial logistic regression, pure Python",
+  "train_examples": 1128,
+  "final_examples": 1347,
+  "classes": [
+    "affirm",
+    "browse",
+    "cancel_order",
+    "change_order",
+    "check_stock",
+    "complaint",
+    "deny",
+    "discount_request",
+    "exchange",
+    "goodbye",
+    "greeting",
+    "help",
+    "human_request",
+    "order_status",
+    "payment_request",
+    "place_order",
+    "policy_question",
+    "provide_details",
+    "recommend",
+    "refund",
+    "smalltalk",
+    "thanks"
+  ],
+  "train_seconds": 4.8,
+  "heldout": {
+    "n": 219,
+    "accuracy": 0.863,
+    "macro_f1": 0.748,
+    "per_intent": {
+      "affirm": {
+        "precision": 1.0,
+        "recall": 0.5,
+        "f1": 0.6667,
+        "support": 6
+      },
+      "browse": {
+        "precision": 0.9,
+        "recall": 0.75,
+        "f1": 0.8182,
+        "support": 12
+      },
+      "cancel_order": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "change_order": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 1
+      },
+      "check_stock": {
+        "precision": 0.8222,
+        "recall": 1.0,
+        "f1": 0.9024,
+        "support": 37
+      },
+      "complaint": {
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75,
+        "support": 4
+      },
+      "deny": {
+        "precision": 0.5,
+        "recall": 0.25,
+        "f1": 0.3333,
+        "support": 4
+      },
+      "discount_request": {
+        "precision": 0.5,
+        "recall": 0.3333,
+        "f1": 0.4,
+        "support": 3
+      },
+      "exchange": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 15
+      },
+      "goodbye": {
+        "precision": 0.5,
+        "recall": 0.5,
+        "f1": 0.5,
+        "support": 4
+      },
+      "greeting": {
+        "precision": 1.0,
+        "recall": 0.7143,
+        "f1": 0.8333,
+        "support": 7
+      },
+      "help": {
+        "precision": 0.5,
+        "recall": 0.4,
+        "f1": 0.4444,
+        "support": 5
+      },
+      "human_request": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "order_status": {
+        "precision": 0.8667,
+        "recall": 0.8667,
+        "f1": 0.8667,
+        "support": 15
+      },
+      "payment_request": {
+        "precision": 0.6667,
+        "recall": 1.0,
+        "f1": 0.8,
+        "support": 2
+      },
+      "place_order": {
+        "precision": 0.9091,
+        "recall": 0.9375,
+        "f1": 0.9231,
+        "support": 32
+      },
+      "policy_question": {
+        "precision": 0.8636,
+        "recall": 1.0,
+        "f1": 0.9268,
+        "support": 19
+      },
+      "provide_details": {
+        "precision": 1.0,
+        "recall": 0.9412,
+        "f1": 0.9697,
+        "support": 17
+      },
+      "recommend": {
+        "precision": 0.9474,
+        "recall": 0.9474,
+        "f1": 0.9474,
+        "support": 19
+      },
+      "refund": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "smalltalk": {
+        "precision": 0.5556,
+        "recall": 0.7143,
+        "f1": 0.625,
+        "support": 7
+      },
+      "thanks": {
+        "precision": 1.0,
+        "recall": 0.6,
+        "f1": 0.75,
+        "support": 5
+      }
     },
-    "check_stock": {
-      "precision": 1.0,
-      "recall": 0.9,
-      "f1-score": 0.9473684210526315,
-      "support": 10.0
+    "errors": [
+      {
+        "text": "adaab",
+        "expected": "greeting",
+        "predicted": "help"
+      },
+      {
+        "text": "koi hai",
+        "expected": "greeting",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "appreciate it",
+        "expected": "thanks",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "ty",
+        "expected": "thanks",
+        "predicted": "policy_question"
+      },
+      {
+        "text": "baad mein baat karte hain",
+        "expected": "goodbye",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "shab bakhair",
+        "expected": "goodbye",
+        "predicted": "browse"
+      },
+      {
+        "text": "kya chal raha hai",
+        "expected": "smalltalk",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "kaise ho",
+        "expected": "smalltalk",
+        "predicted": "policy_question"
+      },
+      {
+        "text": "aap kya kya kar sakte hain",
+        "expected": "help",
+        "predicted": "smalltalk"
+      },
+      {
+        "text": "how does this work",
+        "expected": "help",
+        "predicted": "policy_question"
+      },
+      {
+        "text": "mujhe help chahiye",
+        "expected": "help",
+        "predicted": "place_order"
+      },
+      {
+        "text": "aap ke paas kya hai",
+        "expected": "browse",
+        "predicted": "smalltalk"
+      },
+      {
+        "text": "abaya hai aap ke paas",
+        "expected": "browse",
+        "predicted": "smalltalk"
+      },
+      {
+        "text": "jeans hain",
+        "expected": "browse",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "send me one",
+        "expected": "place_order",
+        "predicted": "payment_request"
+      },
+      {
+        "text": "checkout",
+        "expected": "place_order",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "order abhi tak nahi aaya",
+        "expected": "order_status",
+        "predicted": "deny"
+      },
+      {
+        "text": "courier kaun sa hai",
+        "expected": "order_status",
+        "predicted": "smalltalk"
+      },
+      {
+        "text": "affordable options",
+        "expected": "recommend",
+        "predicted": "help"
+      },
+      {
+        "text": "my kurta arrived torn",
+        "expected": "complaint",
+        "predicted": "order_status"
+      },
+      {
+        "text": "special price",
+        "expected": "discount_request",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "best price do",
+        "expected": "discount_request",
+        "predicted": "recommend"
+      },
+      {
+        "text": "galat address diya",
+        "expected": "change_order",
+        "predicted": "complaint"
+      },
+      {
+        "text": "kar do",
+        "expected": "affirm",
+        "predicted": "place_order"
+      },
+      {
+        "text": "ok",
+        "expected": "affirm",
+        "predicted": "goodbye"
+      },
+      {
+        "text": "place it",
+        "expected": "affirm",
+        "predicted": "place_order"
+      },
+      {
+        "text": "baad mein",
+        "expected": "deny",
+        "predicted": "check_stock"
+      },
+      {
+        "text": "chhoro",
+        "expected": "deny",
+        "predicted": "discount_request"
+      },
+      {
+        "text": "not now",
+        "expected": "deny",
+        "predicted": "goodbye"
+      },
+      {
+        "text": "my number is 03001234567",
+        "expected": "provide_details",
+        "predicted": "order_status"
+      }
+    ]
+  },
+  "test_conversation_turns": {
+    "n": 96,
+    "accuracy": 0.9792,
+    "macro_f1": 0.9825,
+    "per_intent": {
+      "affirm": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 7
+      },
+      "check_stock": {
+        "precision": 1.0,
+        "recall": 0.875,
+        "f1": 0.9333,
+        "support": 16
+      },
+      "complaint": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "discount_request": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 1
+      },
+      "exchange": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 20
+      },
+      "human_request": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 2
+      },
+      "order_status": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 7
+      },
+      "place_order": {
+        "precision": 0.75,
+        "recall": 1.0,
+        "f1": 0.8571,
+        "support": 6
+      },
+      "policy_question": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 6
+      },
+      "provide_details": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 21
+      },
+      "recommend": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 6
+      },
+      "refund": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 3
+      }
     },
-    "create_exchange": {
-      "precision": 0.2,
-      "recall": 1.0,
-      "f1-score": 0.3333333333333333,
-      "support": 1.0
-    },
-    "create_order": {
-      "precision": 0.5833333333333334,
-      "recall": 1.0,
-      "f1-score": 0.7368421052631579,
-      "support": 7.0
-    },
-    "deny_status_mismatch": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1-score": 0.0,
-      "support": 1.0
-    },
-    "escalate": {
-      "precision": 0.9090909090909091,
-      "recall": 0.5555555555555556,
-      "f1-score": 0.6896551724137931,
-      "support": 18.0
-    },
-    "get_order_status": {
-      "precision": 0.6666666666666666,
-      "recall": 0.5,
-      "f1-score": 0.5714285714285714,
-      "support": 4.0
-    },
-    "recommend": {
-      "precision": 1.0,
-      "recall": 0.6666666666666666,
-      "f1-score": 0.8,
-      "support": 3.0
-    },
-    "request_confirmation": {
-      "precision": 1.0,
-      "recall": 0.5,
-      "f1-score": 0.6666666666666666,
-      "support": 2.0
-    },
-    "request_missing_info": {
-      "precision": 0.0,
-      "recall": 0.0,
-      "f1-score": 0.0,
-      "support": 0.0
-    },
-    "accuracy": 0.7307692307692307,
-    "macro avg": {
-      "precision": 0.635909090909091,
-      "recall": 0.6122222222222222,
-      "f1-score": 0.5745294270158154,
-      "support": 52.0
-    },
-    "weighted avg": {
-      "precision": 0.8521853146853147,
-      "recall": 0.7307692307692307,
-      "f1-score": 0.7576490962153396,
-      "support": 52.0
-    }
+    "errors": [
+      {
+        "text": "white wash & wear kurta M 6 chahiye",
+        "expected": "check_stock",
+        "predicted": "place_order"
+      },
+      {
+        "text": "mujhe 7 piece beige linen kurti M chahiye",
+        "expected": "check_stock",
+        "predicted": "place_order"
+      }
+    ]
   }
 }

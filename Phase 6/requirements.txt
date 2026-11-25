@@ -1,8 +1,5 @@
-# Core runtime (the agent itself is pure stdlib: csv/json/re/sqlite3)
-fastapi
-uvicorn
-
-# Optional training extras — only needed for `python train_model.py`.
-# The agent runs without them; the trained model is a fallback signal only.
-# scikit-learn
-# rapidfuzz
+# The agent itself (NLU, guardrails, intent model, policy retrieval, SQLite
+# store) is pure Python standard library. FastAPI/uvicorn only serve HTTP.
+# Training the intent model (python train_model.py) needs nothing extra.
+fastapi>=0.110
+uvicorn>=0.29

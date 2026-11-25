@@ -6,5 +6,5 @@ Hosted web application: Not hosted yet. The web application runs locally:
   pip install -r requirements.txt
   python app.py
   then open http://127.0.0.1:8000
-Model file: models/intent_model.pkl (TF-IDF + Logistic Regression intent classifier, test accuracy 0.731), scores in models/metrics.json
+Model file: models/intent_model.json (per-message intent classifier: TF-IDF word + character n-grams with multinomial logistic regression, pure Python; retrain with python train_model.py), scores in models/metrics.json
 Final report: F26-07_Technical_Report.pdf and F26-07_Technical_Report.docx (in this package and to be added to the GitHub repository)

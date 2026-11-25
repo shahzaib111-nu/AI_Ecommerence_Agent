@@ -3,9 +3,16 @@
 Pure stdlib (sqlite3/csv). One Store object owns one connection guarded by a
 lock; order creation and reservations run inside BEGIN IMMEDIATE transactions
 so two customers can never reserve the same last unit.
+
+Older shop.db files are migrated in place (missing columns are added), so an
+existing database keeps working after an upgrade.
 """
 import csv
+import hashlib
 import json
+import os
+import random
+import secrets
 import sqlite3
 import threading
 import time
@@ -13,6 +20,20 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 DATA = BASE / "data"
+
+SIZE_ORDER = ["XS", "S", "M", "L", "XL", "XXL", "2-3Y", "4-5Y", "6-7Y", "8-9Y", "Free"]
+ORDER_STATUSES = ["Placed", "Packed", "Shipped", "Delivered", "Cancelled"]
+COURIERS = ["TCS", "Leopards", "M&P", "PostEx"]
+
+
+def size_key(s):
+    if s in SIZE_ORDER:
+        return (0, SIZE_ORDER.index(s), "")
+    try:
+        return (1, int(s), "")
+    except (TypeError, ValueError):
+        return (2, 0, str(s))
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS catalog(
@@ -22,7 +43,8 @@ CREATE TABLE IF NOT EXISTS catalog(
 CREATE TABLE IF NOT EXISTS orders(
   order_id INTEGER PRIMARY KEY, customer_name TEXT, phone TEXT, sku TEXT,
   qty INTEGER, city TEXT, status TEXT, order_date TEXT, delivered_date TEXT,
-  courier TEXT, tracking_no TEXT, total INTEGER, session_id TEXT);
+  courier TEXT, tracking_no TEXT, total INTEGER, session_id TEXT,
+  address TEXT, channel TEXT);
 CREATE TABLE IF NOT EXISTS reservations(
   id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, sku TEXT,
   qty INTEGER, expires_at REAL, active INTEGER DEFAULT 1);
@@ -30,10 +52,11 @@ CREATE TABLE IF NOT EXISTS conversations(
   session_id TEXT PRIMARY KEY, started_at REAL, turns INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT,
-  text TEXT, ts REAL);
+  text TEXT, ts REAL, meta TEXT);
 CREATE TABLE IF NOT EXISTS escalations(
   id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, reason TEXT,
-  detail TEXT, status TEXT DEFAULT 'open', created_at REAL);
+  detail TEXT, status TEXT DEFAULT 'open', created_at REAL,
+  message TEXT, order_id INTEGER, customer TEXT, resolved_at REAL);
 CREATE TABLE IF NOT EXISTS exchanges(
   id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, old_sku TEXT,
   replacement_sku TEXT, courier_charge INTEGER, created_at REAL);
@@ -43,17 +66,31 @@ CREATE TABLE IF NOT EXISTS audit(
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS users(
   id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT UNIQUE,
-  phone TEXT, salt TEXT, pass_hash TEXT, created_at REAL);
+  phone TEXT, salt TEXT, pass_hash TEXT, created_at REAL,
+  role TEXT DEFAULT 'customer');
 CREATE TABLE IF NOT EXISTS auth_tokens(
   token TEXT PRIMARY KEY, user_id INTEGER, created_at REAL);
 CREATE TABLE IF NOT EXISTS reviews(
   id INTEGER PRIMARY KEY AUTOINCREMENT, stars INTEGER, user_name TEXT,
-  created_at REAL);
+  created_at REAL, comment TEXT);
 """
+
+MIGRATIONS = [
+    ("orders", "address", "TEXT"), ("orders", "channel", "TEXT"),
+    ("messages", "meta", "TEXT"),
+    ("escalations", "message", "TEXT"), ("escalations", "order_id", "INTEGER"),
+    ("escalations", "customer", "TEXT"), ("escalations", "resolved_at", "REAL"),
+    ("users", "role", "TEXT DEFAULT 'customer'"),
+    ("reviews", "comment", "TEXT"),
+]
+
+
+def _hash(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 60000).hex()
 
 
 class Store:
-    def __init__(self, db_path=None, data_dir=None):
+    def __init__(self, db_path=None, data_dir=None, seed_admin=True):
         self.db_path = str(db_path or (BASE / "shop.db"))
         self.data_dir = Path(data_dir or DATA)
         self.lock = threading.RLock()
@@ -62,8 +99,30 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         with self.lock:
             self.conn.executescript(SCHEMA)
+            self._migrate()
             if self.conn.execute("SELECT COUNT(*) c FROM catalog").fetchone()["c"] == 0:
                 self._seed()
+            if seed_admin:
+                self._seed_admin()
+
+    def _migrate(self):
+        for table, col, typ in MIGRATIONS:
+            cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+
+    def _seed_admin(self):
+        email = os.environ.get("ADMIN_EMAIL", "admin@saira.pk").lower()
+        password = os.environ.get("ADMIN_PASSWORD", "Admin@1234")
+        r = self.conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+        if not r:
+            salt = os.urandom(16).hex()
+            self.conn.execute(
+                "INSERT INTO users(name,email,phone,salt,pass_hash,created_at,role)"
+                " VALUES(?,?,?,?,?,?,'admin')",
+                ("Store Staff", email, "", salt, _hash(password, salt), time.time()))
+        else:
+            self.conn.execute("UPDATE users SET role='admin' WHERE id=?", (r["id"],))
 
     # ------------------------------------------------------------------ seed
     def _seed(self):
@@ -80,7 +139,7 @@ class Store:
         self.conn.executemany(
             "INSERT OR REPLACE INTO orders(order_id,customer_name,phone,sku,qty,"
             "city,status,order_date,delivered_date,courier,tracking_no,total,"
-            "session_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+            "session_id,address,channel) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,'seed')",
             [(int(r["order_id"]), r["customer_name"], r["phone"], r["sku"],
               int(r["qty"]), r["city"], r["status"], r["order_date"],
               r["delivered_date"] or None, r["courier"] or None,
@@ -111,35 +170,96 @@ class Store:
         if size:
             q += " AND upper(size)=upper(?)"; args.append(size)
         with self.lock:
-            r = self.conn.execute(q, args).fetchone()
+            r = self.conn.execute(q + " ORDER BY sku", args).fetchone()
             return dict(r) if r else None
 
     def variants_of(self, name):
         with self.lock:
             return [dict(r) for r in self.conn.execute(
-                "SELECT * FROM catalog WHERE lower(name)=lower(?)", (name,))]
+                "SELECT * FROM catalog WHERE lower(name)=lower(?) ORDER BY sku", (name,))]
 
     def product_names(self):
         with self.lock:
             return [r["name"] for r in self.conn.execute(
                 "SELECT DISTINCT name FROM catalog ORDER BY name")]
 
+    def _reserved_map(self):
+        rows = self.conn.execute(
+            "SELECT sku, SUM(qty) q FROM reservations WHERE active=1 AND expires_at>=?"
+            " GROUP BY sku", (time.time(),))
+        return {r["sku"]: r["q"] for r in rows}
+
     def catalog_search(self, q=None, category=None, in_stock=None, limit=50, offset=0):
         sql = "SELECT * FROM catalog WHERE 1=1"
         args = []
         if q:
-            sql += " AND (lower(name) LIKE ? OR lower(category) LIKE ? OR lower(color) LIKE ?)"
-            args += [f"%{q.lower()}%"] * 3
+            sql += (" AND (lower(name) LIKE ? OR lower(category) LIKE ? OR lower(color) LIKE ?"
+                    " OR lower(sku) LIKE ?)")
+            args += [f"%{q.lower()}%"] * 4
         if category:
             sql += " AND lower(category)=lower(?)"; args.append(category)
         if in_stock:
             sql += " AND stock>0"
-        total = self.conn.execute(sql.replace("SELECT *", "SELECT COUNT(*) c"), args).fetchone()["c"]
-        rows = [dict(r) for r in self.conn.execute(
-            sql + " ORDER BY name,color,size LIMIT ? OFFSET ?", args + [limit, offset])]
+        with self.lock:
+            total = self.conn.execute(sql.replace("SELECT *", "SELECT COUNT(*) c"), args).fetchone()["c"]
+            rows = [dict(r) for r in self.conn.execute(
+                sql + " ORDER BY name,color,size LIMIT ? OFFSET ?", args + [limit, offset])]
+            res = self._reserved_map()
         for r in rows:
-            r["available"] = self.available(r["sku"])
+            r["available"] = max(0, r["stock"] - res.get(r["sku"], 0))
         return {"total": total, "items": rows}
+
+    def product_summaries(self):
+        """One row per product: price, sale, colors, sizes, total available."""
+        with self.lock:
+            rows = [dict(r) for r in self.conn.execute("SELECT * FROM catalog ORDER BY sku")]
+            res = self._reserved_map()
+        prods = {}
+        for r in rows:
+            p = prods.setdefault(r["product_id"], {
+                "product_id": r["product_id"], "name": r["name"], "category": r["category"],
+                "price": r["price"], "original_price": r["original_price"],
+                "is_sale": bool(r["is_sale"]), "description": r["description"],
+                "colors": [], "sizes": [], "available": 0, "variants": 0,
+                "color_stock": {}})
+            p["price"] = min(p["price"], r["price"])
+            p["original_price"] = max(p["original_price"], r["original_price"])
+            if r["color"] not in p["colors"]:
+                p["colors"].append(r["color"])
+            if r["size"] not in p["sizes"]:
+                p["sizes"].append(r["size"])
+            avail = max(0, r["stock"] - res.get(r["sku"], 0))
+            p["available"] += avail
+            p["color_stock"][r["color"]] = p["color_stock"].get(r["color"], 0) + avail
+            p["variants"] += 1
+        out = list(prods.values())
+        for p in out:
+            p["sizes"].sort(key=size_key)
+        return out
+
+    def product_detail(self, product_id):
+        with self.lock:
+            rows = [dict(r) for r in self.conn.execute(
+                "SELECT * FROM catalog WHERE product_id=? ORDER BY sku", (product_id,))]
+            res = self._reserved_map()
+        if not rows:
+            return None
+        for r in rows:
+            r["available"] = max(0, r["stock"] - res.get(r["sku"], 0))
+            r["is_sale"] = bool(r["is_sale"])
+        summ = next(p for p in self.product_summaries() if p["product_id"] == product_id)
+        summ["variants_list"] = sorted(rows, key=lambda r: (r["color"], size_key(r["size"])))
+        return summ
+
+    def categories(self):
+        cats = {}
+        for p in self.product_summaries():
+            c = cats.setdefault(p["category"], {"category": p["category"], "products": 0,
+                                                "min_price": p["price"], "available": 0})
+            c["products"] += 1
+            c["min_price"] = min(c["min_price"], p["price"])
+            c["available"] += p["available"]
+        return sorted(cats.values(), key=lambda c: c["category"])
 
     # ----------------------------------------------------------- reservations
     def _expire(self):
@@ -167,7 +287,10 @@ class Store:
             self.conn.execute("BEGIN IMMEDIATE")
             try:
                 self._expire()
+                need = {}
                 for sku, qty in items:
+                    need[sku] = need.get(sku, 0) + qty
+                for sku, qty in need.items():
                     if self.available(sku) < qty:
                         self.conn.execute("ROLLBACK")
                         return False
@@ -188,11 +311,13 @@ class Store:
                 "UPDATE reservations SET active=0 WHERE session_id=? AND active=1",
                 (session_id,))
 
-    def create_orders(self, session_id, customer, items, city, grand_total):
+    def create_orders(self, session_id, customer, items, city, grand_total,
+                      delivery=None, channel="chat"):
         """Convert this session's active reservations into orders.
 
         items: list of dicts {sku, qty, price}. Stock is decremented inside the
         same IMMEDIATE transaction, so reserved units cannot be double-sold.
+        One order row per item; the delivery charge is added to the first.
         Returns list of new order ids.
         """
         with self.lock:
@@ -203,26 +328,35 @@ class Store:
                 next_id = (self.conn.execute(
                     "SELECT COALESCE(MAX(order_id),20000) m FROM orders"
                 ).fetchone()["m"] + 1)
-                for it in items:
+                if delivery is None:
+                    delivery = grand_total - sum(i["price"] * i["qty"] for i in items)
+                for n, it in enumerate(items):
                     res = self.conn.execute(
                         "SELECT id FROM reservations WHERE session_id=? AND sku=?"
-                        " AND active=1", (session_id, it["sku"])).fetchone()
+                        " AND active=1 AND qty=? ORDER BY id", (session_id, it["sku"], it["qty"])
+                    ).fetchone() or self.conn.execute(
+                        "SELECT id FROM reservations WHERE session_id=? AND sku=?"
+                        " AND active=1 ORDER BY id", (session_id, it["sku"])).fetchone()
                     if not res:
                         self.conn.execute("ROLLBACK")
                         return []
                     self.conn.execute("UPDATE reservations SET active=0 WHERE id=?",
                                       (res["id"],))
-                    self.conn.execute(
+                    cur = self.conn.execute(
                         "UPDATE catalog SET stock=stock-? WHERE sku=? AND stock>=?",
                         (it["qty"], it["sku"], it["qty"]))
-                    total = grand_total if len(items) == 1 else it["price"] * it["qty"]
+                    if cur.rowcount != 1:
+                        self.conn.execute("ROLLBACK")
+                        return []
+                    total = it["price"] * it["qty"] + (delivery if n == 0 else 0)
                     self.conn.execute(
                         "INSERT INTO orders(order_id,customer_name,phone,sku,qty,"
                         "city,status,order_date,delivered_date,courier,tracking_no,"
-                        "total,session_id) VALUES(?,?,?,?,?,?,'Placed',date('now'),"
-                        "NULL,NULL,NULL,?,?)",
+                        "total,session_id,address,channel) VALUES(?,?,?,?,?,?,'Placed',"
+                        "date('now'),NULL,NULL,NULL,?,?,?,?)",
                         (next_id, customer.get("name"), customer.get("phone"),
-                         it["sku"], it["qty"], city, total, session_id))
+                         it["sku"], it["qty"], city, total, session_id,
+                         customer.get("address"), channel))
                     ids.append(next_id)
                     next_id += 1
                 self.conn.execute("COMMIT")
@@ -233,33 +367,94 @@ class Store:
 
     # ---------------------------------------------------------------- orders
     def get_order(self, order_id):
+        try:
+            oid = int(order_id)
+        except (TypeError, ValueError):
+            return None
         with self.lock:
-            r = self.conn.execute("SELECT * FROM orders WHERE order_id=?",
-                                  (int(order_id),)).fetchone()
+            r = self.conn.execute("SELECT * FROM orders WHERE order_id=?", (oid,)).fetchone()
             return dict(r) if r else None
 
-    def list_orders(self, limit=100):
+    def _order_rows(self, sql, args):
         with self.lock:
-            return [dict(r) for r in self.conn.execute(
-                "SELECT * FROM orders ORDER BY order_id DESC LIMIT ?", (limit,))]
+            rows = [dict(r) for r in self.conn.execute(sql, args)]
+            names = {r["sku"]: dict(r) for r in self.conn.execute(
+                "SELECT sku,name,color,size,price FROM catalog")}
+        for r in rows:
+            v = names.get(r["sku"]) or {}
+            r["item"] = f"{v.get('name', r['sku'])} · {v.get('color', '')} · {v.get('size', '')}"
+            r["product_name"] = v.get("name")
+        return rows
+
+    def list_orders(self, limit=100, status=None, q=None):
+        sql, args = "SELECT * FROM orders WHERE 1=1", []
+        if status:
+            sql += " AND status=?"; args.append(status)
+        if q:
+            sql += " AND (CAST(order_id AS TEXT) LIKE ? OR lower(customer_name) LIKE ? OR phone LIKE ?)"
+            args += [f"%{q.lower()}%"] * 3
+        return self._order_rows(sql + " ORDER BY order_id DESC LIMIT ?", args + [limit])
+
+    def update_order_status(self, order_id, status):
+        if status not in ORDER_STATUSES:
+            return None
+        o = self.get_order(order_id)
+        if not o:
+            return None
+        sets, args = ["status=?"], [status]
+        if status == "Shipped" and not o.get("tracking_no"):
+            courier = random.choice(COURIERS)
+            sets += ["courier=?", "tracking_no=?"]
+            args += [courier, courier.replace("&", "")[:3].upper() + str(random.randint(100000, 999999))]
+        if status == "Delivered":
+            sets.append("delivered_date=date('now')")
+        with self.lock:
+            if status == "Cancelled" and o["status"] != "Cancelled":
+                self.conn.execute("UPDATE catalog SET stock=stock+? WHERE sku=?",
+                                  (o["qty"], o["sku"]))
+            self.conn.execute(f"UPDATE orders SET {', '.join(sets)} WHERE order_id=?",
+                              args + [int(order_id)])
+        return self.get_order(order_id)
 
     def add_exchange(self, order_id, old_sku, replacement_sku, charge):
         with self.lock:
-            self.conn.execute(
+            cur = self.conn.execute(
                 "INSERT INTO exchanges(order_id,old_sku,replacement_sku,"
                 "courier_charge,created_at) VALUES(?,?,?,?,?)",
                 (order_id, old_sku, replacement_sku, charge, time.time()))
+            return cur.lastrowid
+
+    def orders_for_phone(self, phone):
+        digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+        if not digits:
+            return []
+        return self._order_rows("SELECT * FROM orders WHERE phone=? ORDER BY order_id DESC",
+                                (digits,))
 
     # ------------------------------------------------------- logs / dashboard
-    def log_message(self, session_id, role, text):
+    def log_message(self, session_id, role, text, meta=None):
         with self.lock:
             self.conn.execute(
                 "INSERT OR IGNORE INTO conversations VALUES(?,?,0)", (session_id, time.time()))
             self.conn.execute(
                 "UPDATE conversations SET turns=turns+1 WHERE session_id=?", (session_id,))
-            self.conn.execute(
-                "INSERT INTO messages(session_id,role,text,ts) VALUES(?,?,?,?)",
-                (session_id, role, text, time.time()))
+            cur = self.conn.execute(
+                "INSERT INTO messages(session_id,role,text,ts,meta) VALUES(?,?,?,?,?)",
+                (session_id, role, text, time.time(),
+                 json.dumps(meta) if meta is not None else None))
+            return cur.lastrowid
+
+    def messages_for(self, session_id, after_id=0, limit=200):
+        with self.lock:
+            rows = [dict(r) for r in self.conn.execute(
+                "SELECT * FROM messages WHERE session_id=? AND id>? ORDER BY id LIMIT ?",
+                (session_id, int(after_id or 0), limit))]
+        for r in rows:
+            try:
+                r["meta"] = json.loads(r["meta"]) if r.get("meta") else None
+            except ValueError:
+                r["meta"] = None
+        return rows
 
     def audit(self, session_id, action, detail):
         if isinstance(detail, (dict, list)):
@@ -269,18 +464,28 @@ class Store:
                 "INSERT INTO audit(ts,session_id,action,detail) VALUES(?,?,?,?)",
                 (time.time(), session_id, action, str(detail)[:500]))
 
-    def add_escalation(self, session_id, reason, detail):
+    def add_escalation(self, session_id, reason, detail, message=None,
+                       order_id=None, customer=None):
         with self.lock:
             cur = self.conn.execute(
-                "INSERT INTO escalations(session_id,reason,detail,created_at)"
-                " VALUES(?,?,?,?)", (session_id, reason, str(detail)[:500], time.time()))
+                "INSERT INTO escalations(session_id,reason,detail,created_at,message,"
+                "order_id,customer) VALUES(?,?,?,?,?,?,?)",
+                (session_id, reason, str(detail)[:500], time.time(),
+                 (message or "")[:500], order_id, customer))
             return cur.lastrowid
 
-    def list_escalations(self, status=None):
-        sql = "SELECT * FROM escalations"
+    def get_escalation(self, esc_id):
+        with self.lock:
+            r = self.conn.execute("SELECT * FROM escalations WHERE id=?", (esc_id,)).fetchone()
+            return dict(r) if r else None
+
+    def list_escalations(self, status=None, session_id=None):
+        sql = "SELECT * FROM escalations WHERE 1=1"
         args = []
         if status:
-            sql += " WHERE status=?"; args.append(status)
+            sql += " AND status=?"; args.append(status)
+        if session_id:
+            sql += " AND session_id=?"; args.append(session_id)
         with self.lock:
             return [dict(r) for r in self.conn.execute(
                 sql + " ORDER BY id DESC LIMIT 200", args)]
@@ -288,7 +493,8 @@ class Store:
     def resolve_escalation(self, esc_id):
         with self.lock:
             cur = self.conn.execute(
-                "UPDATE escalations SET status='resolved' WHERE id=?", (esc_id,))
+                "UPDATE escalations SET status='resolved', resolved_at=? WHERE id=?",
+                (time.time(), esc_id))
             return cur.rowcount == 1
 
     def set_kv(self, key, value):
@@ -305,109 +511,122 @@ class Store:
         with self.lock:
             c = self.conn
             conv = c.execute("SELECT COUNT(*) n FROM conversations").fetchone()["n"]
-            ords = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders").fetchone()
+            ords = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders"
+                             " WHERE status!='Cancelled'").fetchone()
+            new_ords = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders"
+                                 " WHERE channel IN ('chat','web')").fetchone()
             esc = c.execute("SELECT COUNT(*) n FROM escalations WHERE status='open'").fetchone()["n"]
+            esc_sessions = c.execute(
+                "SELECT COUNT(DISTINCT session_id) n FROM escalations").fetchone()["n"]
             esc_total = c.execute("SELECT COUNT(*) n FROM escalations").fetchone()["n"]
             low = [dict(r) for r in c.execute(
-                "SELECT sku,name,color,size,stock FROM catalog WHERE stock BETWEEN 1 AND 4 ORDER BY stock LIMIT 20")]
+                "SELECT sku,name,color,size,stock FROM catalog WHERE stock BETWEEN 1 AND 4"
+                " ORDER BY stock, name LIMIT 25")]
             out = [dict(r) for r in c.execute(
-                "SELECT sku,name,color,size,stock FROM catalog WHERE stock=0 LIMIT 20")]
+                "SELECT sku,name,color,size,stock FROM catalog WHERE stock<=0 ORDER BY name LIMIT 25")]
             top = [dict(r) for r in c.execute(
-                "SELECT cat.name, COUNT(*) n FROM orders o JOIN catalog cat ON cat.sku=o.sku"
-                " GROUP BY cat.name ORDER BY n DESC LIMIT 5")]
+                "SELECT cat.name, COUNT(*) n, SUM(o.qty) units FROM orders o JOIN catalog cat"
+                " ON cat.sku=o.sku GROUP BY cat.name ORDER BY n DESC, units DESC LIMIT 6")]
+            by_status = {r["status"]: r["n"] for r in c.execute(
+                "SELECT status, COUNT(*) n FROM orders GROUP BY status")}
+            reasons = {r["reason"]: r["n"] for r in c.execute(
+                "SELECT reason, COUNT(*) n FROM escalations GROUP BY reason ORDER BY n DESC")}
             intents = {}
             for r in c.execute("SELECT detail FROM audit WHERE action='decision'"):
                 try:
-                    intents[json.loads(r["detail"]).get("intent", "?")] = \
-                        intents.get(json.loads(r["detail"]).get("intent", "?"), 0) + 1
-                except Exception:
-                    pass
-            handled = round(100.0 * (conv - esc_total) / conv, 1) if conv else 100.0
-            return {
-                "conversations": conv,
-                "orders": ords["n"],
-                "revenue": ords["rev"],
-                "open_escalations": esc,
-                "total_escalations": esc_total,
-                "handled_percent": max(handled, 0.0),
-                "intent_counts": intents,
-                "top_products": top,
-                "low_stock": low,
-                "out_of_stock": out,
-                "recent_escalations": self.list_escalations()[:10],
-                "recent_audit": [dict(r) for r in c.execute(
-                    "SELECT * FROM audit ORDER BY id DESC LIMIT 20")],
-            }
+                    k = json.loads(r["detail"]).get("intent", "?")
+                except ValueError:
+                    continue
+                intents[k] = intents.get(k, 0) + 1
+            stock_units = c.execute("SELECT COALESCE(SUM(stock),0) n FROM catalog").fetchone()["n"]
+            recent_audit = [dict(r) for r in c.execute(
+                "SELECT * FROM audit WHERE action!='decision' ORDER BY id DESC LIMIT 15")]
+        handled = round(100.0 * (conv - esc_sessions) / conv, 1) if conv else 100.0
+        return {
+            "conversations": conv,
+            "orders": ords["n"],
+            "revenue": ords["rev"],
+            "new_orders": new_ords["n"],
+            "new_revenue": new_ords["rev"],
+            "open_escalations": esc,
+            "total_escalations": esc_total,
+            "handled_percent": max(handled, 0.0),
+            "intent_counts": intents,
+            "orders_by_status": by_status,
+            "escalation_reasons": reasons,
+            "top_products": top,
+            "low_stock": low,
+            "out_of_stock": out,
+            "stock_units": stock_units,
+            "recent_escalations": self.list_escalations()[:10],
+            "recent_audit": recent_audit,
+            "reviews": self.reviews_summary(),
+        }
 
     # ------------------------------------------------------------- accounts
     def create_user(self, name, email, phone, password):
-        import hashlib, os
         salt = os.urandom(16).hex()
-        h = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 60000).hex()
         with self.lock:
             try:
                 cur = self.conn.execute(
-                    "INSERT INTO users(name,email,phone,salt,pass_hash,created_at)"
-                    " VALUES(?,?,?,?,?,?)",
-                    (name, email.lower(), phone, salt, h, time.time()))
+                    "INSERT INTO users(name,email,phone,salt,pass_hash,created_at,role)"
+                    " VALUES(?,?,?,?,?,?,'customer')",
+                    (name, email.lower(), phone, salt, _hash(password, salt), time.time()))
             except sqlite3.IntegrityError:
                 return None
             return cur.lastrowid
 
     def verify_user(self, email, password):
-        import hashlib
         with self.lock:
             r = self.conn.execute("SELECT * FROM users WHERE email=?",
-                                  (email.lower(),)).fetchone()
-            if not r:
-                return None
-            h = hashlib.pbkdf2_hmac("sha256", password.encode(),
-                                    bytes.fromhex(r["salt"]), 60000).hex()
-            if h != r["pass_hash"]:
-                return None
-            return {"id": r["id"], "name": r["name"], "email": r["email"],
-                    "phone": r["phone"]}
+                                  (email.lower().strip(),)).fetchone()
+        if not r or not secrets.compare_digest(_hash(password, r["salt"]), r["pass_hash"]):
+            return None
+        return {"id": r["id"], "name": r["name"], "email": r["email"],
+                "phone": r["phone"], "role": r["role"] or "customer"}
 
     def new_token(self, user_id):
-        import secrets
         tok = secrets.token_hex(24)
         with self.lock:
             self.conn.execute("INSERT INTO auth_tokens VALUES(?,?,?)",
                               (tok, user_id, time.time()))
         return tok
 
+    def drop_token(self, token):
+        with self.lock:
+            self.conn.execute("DELETE FROM auth_tokens WHERE token=?", (token,))
+
     def user_by_token(self, token):
         if not token:
             return None
         with self.lock:
             r = self.conn.execute(
-                "SELECT u.id,u.name,u.email,u.phone FROM auth_tokens t"
+                "SELECT u.id,u.name,u.email,u.phone,u.role FROM auth_tokens t"
                 " JOIN users u ON u.id=t.user_id WHERE t.token=?",
                 (token,)).fetchone()
-            return dict(r) if r else None
-
-    def orders_for_phone(self, phone):
-        digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
-        if not digits:
-            return []
-        with self.lock:
-            return [dict(r) for r in self.conn.execute(
-                "SELECT * FROM orders WHERE phone=? ORDER BY order_id DESC",
-                (digits,))]
+            if not r:
+                return None
+            d = dict(r)
+            d["role"] = d.get("role") or "customer"
+            return d
 
     # -------------------------------------------------------------- reviews
-    def add_review(self, stars, user_name=None):
+    def add_review(self, stars, user_name=None, comment=None):
         with self.lock:
-            self.conn.execute("INSERT INTO reviews(stars,user_name,created_at)"
-                              " VALUES(?,?,?)", (int(stars), user_name, time.time()))
+            self.conn.execute("INSERT INTO reviews(stars,user_name,created_at,comment)"
+                              " VALUES(?,?,?,?)",
+                              (int(stars), user_name, time.time(), (comment or "")[:500] or None))
 
     def reviews_summary(self):
         with self.lock:
-            rows = [r["stars"] for r in self.conn.execute("SELECT stars FROM reviews")]
+            rows = [dict(r) for r in self.conn.execute(
+                "SELECT stars,user_name,comment,created_at FROM reviews ORDER BY id DESC")]
         if not rows:
-            return {"count": 0, "average": None, "distribution": {}}
+            return {"count": 0, "average": None, "distribution": {}, "recent": []}
         dist = {}
-        for st in rows:
-            dist[st] = dist.get(st, 0) + 1
-        return {"count": len(rows), "average": round(sum(rows) / len(rows), 2),
-                "distribution": dist}
+        for r in rows:
+            dist[r["stars"]] = dist.get(r["stars"], 0) + 1
+        return {"count": len(rows),
+                "average": round(sum(r["stars"] for r in rows) / len(rows), 2),
+                "distribution": dist,
+                "recent": [r for r in rows if r.get("comment")][:6]}

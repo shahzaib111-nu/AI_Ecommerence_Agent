@@ -99,7 +99,8 @@ def demo(tmpdir):
     show("3. Order summary: 2x Black Linen Kurta M, Lahore", r["reply"])
     check("summary asks for confirmation with total Rs 5248 "
           "(4998 + 250 delivery)",
-          r["trace"]["action"] == "request_confirmation" and "5248" in r["reply"])
+          r["trace"]["action"] == "request_confirmation"
+          and "5248" in r["reply"].replace(",", ""))
     r = say(eng, "d3", "Haan confirm")
     show("Order confirmed", r["reply"])
     check("order created", r["trace"]["action"] == "create_order")
