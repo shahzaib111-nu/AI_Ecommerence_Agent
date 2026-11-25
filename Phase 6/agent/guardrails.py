@@ -24,13 +24,17 @@ PATTERNS = [
                        r"worst|thug|pagal|sharam|pathetic|scam|scammer|disgusting|useless|nonsense)\b"),
     ("damaged_or_wrong_item", r"\b(damaged|defective|torn|broken|ripped|stain|stained)\b|phat|kharab|"
                               r"wrong item|ghalat (item|cheez|size|color)|galat (item|cheez|size|color)|"
-                              r"toot gaya|toota|rang utar|color fade"),
+                              r"toot gaya|toota|rang utar|color fade|wrong size|wrong colou?r|"
+                              r"(ghalat|galat) size aa|size (galat|ghalat) aa|colou?r different|different colou?r|"
+                              r"picture se (alag|different)|kapra patla|quality (kharab|bekar|achi nahi|bad|poor)|"
+                              r"bad quality|poor quality|nuqs|fake (hai|item|product)"),
     ("refund_request", r"\brefund\b|paisay wapas|paise wapas|paisay wapis|paise wapis|money back|"
                        r"\breturn\b.*(money|pais)|wapas kar.*pais|paise lauta"),
     ("return_request", r"\breturn karna\b|\bwant to return\b|\breturn this\b|\breturn kar\b|wapas lo\b"),
     ("human_request", r"\binsan\b|\binsaan\b|owner se|\bhuman\b|banda (bula|se|chahiye|do)|staff se baat|"
                       r"manager se|real banda|bot se nahi|real person|\bagent se\b|live agent|"
-                      r"customer care se|call (me|karo|kar)|mujhe call"),
+                      r"customer care se|call (me|karo|kar)|mujhe call|manager|(phone|call) karo|"
+                      r"bulao|baat karao|talk to (someone|a person|staff|an agent)|speak to"),
     ("wrong_item_received", r"mangwaya tha|galat (bhej|aaya|aya)|ghalat (bhej|aaya|aya)|wrong (bhej|sent)"),
     ("discount_bargaining", r"\b(discount|bargain|bargaining)\b|kam karo|kam kar do|kam kardo|sasta karo|"
                             r"sasta kar do|rate kam|price kam|special price|deal karo|last price|"
@@ -39,18 +43,22 @@ PATTERNS = [
     ("online_payment_request", r"easypaisa|easy paisa|jazzcash|jazz cash|bank transfer|account number|"
                                r"online payment|card se pay|pay online|credit card|debit card|"
                                r"advance payment|bank details|iban"),
-    ("order_cancel_request", r"\bcancel\b|order band|mansookh"),
-    ("order_change_request", r"address change|change (my )?address|\bchange\b[^.]*\border\b|"
+    ("order_cancel_request", r"\bcancel\b|order band|mansookh|order nahi chahiye|nahi chahiye ab|"
+                             r"dont want (the|my|this) order|do not want (the|my) order"),
+    ("order_change_request", r"address (galat|ghalat|wrong)|wrong address|(phone|mobile) number change|"
+                             r"number change karna|address change|change (my )?address|\bchange\b[^.]*\border\b|"
                              r"\border\b[^.]*\bchange\b|galat address|ghalat address|order update"),
 ]
 
 # topics policy.md simply does not cover: the agent must not invent an answer
-OUTSIDE_POLICY = (r"dry clean|shrink|warranty|guarantee|fade hota|rang (jata|chalta)|stitching|"
+OUTSIDE_POLICY = (r"dry clean|how to wash|wash (ho|kar|karna|karte|it|this)|washable|dhulai|dho (sakt|skt)|"
+                  r"iron (kar|ho)|ironing|reseller|resell|shrink|warranty|guarantee|fade hota|rang (jata|chalta)|stitching|"
                   r"silai|alteration|tailor|rent par|iron hota|gift wrap|message card|"
                   r"custom (size|order|design)|wholesale|franchise|job|vacancy|careers|"
-                  r"cash back|cashback|loyalty|promo code|coupon|voucher")
+                  r"cash back|cashback|loyalty")
 
-INFORMATIONAL = r"\bpolicy\b|kitne din|how long|how many days|process|kab tak|kya hai\b"
+INFORMATIONAL = (r"\bpolicy\b|kitne din|how long|how many days|process|kab tak|kya hai\b|can i\b|"
+                 r"kar sakt|ho sakt|possible|allowed")
 
 
 def check_text(text, rules=None):
@@ -65,6 +73,10 @@ def check_text(text, rules=None):
                     and not re.search(r"chahiye|karo|kar do|i want|mujhe|de do|dedo", t):
                 continue
             if reason == "order_cancel_request" and re.search(r"cancel(lation)? policy", t):
+                continue
+            # "discount code hai?" / "koi offer?" asks about promotions — answered, not escalated
+            if reason == "discount_bargaining" and re.search(r"\b(code|coupon|voucher|promo|offer|sale)\b", t) \
+                    and not re.search(r"kam kar|kam karo|sasta kar|de do|dedo|give me", t):
                 continue
             return reason, f"guardrail matched: {reason}"
     # escalation keywords straight from policy_rules.json as a backstop

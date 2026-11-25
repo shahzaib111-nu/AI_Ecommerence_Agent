@@ -102,7 +102,10 @@ PRODUCT_WORD_FIX = {"tshirt": "t-shirt", "tee": "t-shirt", "kurtta": "kurta",
                     "hijabs": "hijab", "shawls": "shawl", "hoodies": "hoodie",
                     "sweaters": "sweater", "frocks": "frock", "belts": "belt",
                     "bags": "bag", "suits": "suit", "waistcoats": "waistcoat",
-                    "sandal": "sandals", "polos": "polo", "shirts": "shirt"}
+                    "sandal": "sandals", "polos": "polo", "shirts": "shirt",
+                    "kurte": "kurta", "kurtey": "kurta", "kurty": "kurti", "kurtiyan": "kurti",
+                    "jutay": "shoes", "jootey": "shoes", "shoe": "shoes", "chappalein": "chappal",
+                    "sweatar": "sweater", "abaye": "abaya", "dupattay": "dupatta"}
 
 # "what kind of thing" words -> predicate over (name, category).
 # Used for browsing ("kurtas dikhao") and recommendations ("winter ke liye").
@@ -114,7 +117,7 @@ TYPE_KEYWORDS = [
     (r"\bkhuss?a\b", ("name", "khussa")),
     (r"\bchappal", ("name", "chappal")),
     (r"\bsandals?\b", ("name", "sandals")),
-    (r"\bsuits?\b|\b[23]\s*-?\s*piece\b|\bco-?ord\b|\bparty wear\b|\bformal\b", ("category", "women stitched")),
+    (r"\bsuits?\b|\b[23]\s*-?\s*piece\b|\bco-?ord\b|\bparty wear\b|\bformal suit", ("category", "women stitched")),
     (r"\bunstitched\b|\bfabric\b|\bunstitch\b", ("category", "unstitched")),
     (r"\bdupatt?as?\b|\bdopatta\b", ("name", "dupatta")),
     (r"\bhijabs?\b|\bscarf\b", ("name", "hijab")),
@@ -137,16 +140,23 @@ TYPE_KEYWORDS = [
     (r"\bwestern\b|\bcasual\b", ("category", "western")),
     (r"\bwedding\b|\bshaadi\b|\bshadi\b|\bmehndi\b|\bbaraat\b|\bevent\b|\bparty\b|\beid\b|\bfestive\b", ("occasion", "festive")),
     (r"\bsummer\b|\bgarmi\b|\blawn\b", ("occasion", "summer")),
+    (r"\boffice\b|\binterview\b|\bformal\b|\bwork ?wear\b|\bjob\b|\bprofessional\b", ("occasion", "office")),
 ]
 GENDER_KEYWORDS = [
     (r"\bmen\b|\bmens\b|\bman\b|\bmale\b|\bgents?\b|\bmardana\b|\blarko\b|\blarkon\b|\bhusband\b|\bboys?\b|\babbu\b|\bbhai ke\b", "men"),
     (r"\bwomen\b|\bwomens\b|\bwoman\b|\bladies\b|\blady\b|\bfemale\b|\bgirls?\b|\blarki\b|\blarkiyon\b|\bzanana\b|\bwife\b|\bammi\b|\bbehen\b|\bsister\b|\bmother\b", "women"),
-    (r"\bkids?\b|\bbach(a|ay|on|ey|chon|che)\b|\bchild(ren)?\b|\bbeta\b|\bbeti\b|\bson\b|\bdaughter\b|\bbaby\b", "kids"),
+    (r"\bkids?\b|\bbach(a|ay|on|ey|chon|che)\b|\bchild(ren)?\b|\bbeta\b|\bbeti\b|\bson\b|\bdaughter\b|\bbab(y|ies)\b|\bnewborn\b|\binfant\b|\btoddler\b", "kids"),
 ]
 FESTIVE_PRODUCTS = {"Chiffon Party Wear", "Organza Formal Suit", "Velvet Winter Suit",
                     "Embroidered Kurta", "Jamawar Waistcoat", "Embroidered Abaya",
                     "Khussa Embroidered", "Embroidered Dupatta", "Embroidered Kurti",
                     "Kids Kurta Shalwar", "Kameez Shalwar Cotton", "Waistcoat Classic"}
+OFFICE_PRODUCTS = {"Casual Shirt", "Chino Trouser", "Waistcoat Classic", "Kameez Shalwar Cotton",
+                   "Linen Kurta", "Cotton Kurta", "Cigarette Trouser", "Straight Pants",
+                   "Linen Kurti", "Cambric Co-ord Set", "Plain Cotton Kurti"}
+# accessories / footwear that are not unisex
+GENDERED = {"Handbag Tote": "women", "Casual Sandals": "women", "Leather Belt": "men",
+            "Peshawari Chappal": "men"}
 SUMMER_PRODUCTS = {"Linen Kurta", "Cotton Kurta", "Lawn 2-Piece Stitched",
                    "Lawn 3-Piece Stitched", "Unstitched Lawn 3-Piece", "Linen Kurti",
                    "Printed Kurti", "Plain Cotton Kurti", "Kids Frock Lawn",
@@ -176,7 +186,8 @@ OUT_OF_SCOPE = re.compile(
     r"football|match score|movie|film|song|gaana|music|news|khabar|politics|election|"
     r"homework|math|maths|recipe|car|bike|laptop|iphone|samsung|electronics|fridge|"
     r"mobile phone|ticket booking|flight|hotel|loan|crypto|bitcoin|stock market|"
-    r"girlfriend|boyfriend|shaadi karo|rishta)s?\b")
+    r"girlfriend|boyfriend|shaadi karo|rishta|uniform|school bag|makeup|perfume|jewell?ery|"
+    r"watch|sunglasses|bedsheet|curtain|furniture)s?\b")
 
 
 def out_of_scope(text):
@@ -239,11 +250,11 @@ def language_of(text):
 
 
 def extract_phone(text):
-    t = re.sub(r"[-\s]", "", str(text or ""))
-    t = re.sub(r"^\+?92(3\d{9})", r"0\1", t)
-    t = re.sub(r"\+92(3\d{9})", r"0\1", t)
-    m = re.search(r"(?<!\d)(03\d{9})(?!\d)", t)
-    return m.group(1) if m else None
+    # separators are allowed *inside* a number (0300-1234567, 0300 123 4567,
+    # +92 300 1234567) but other numbers next to it ('order 10044 0345...')
+    # must never be glued onto it
+    m = re.search(r"(?<![\d+])(?:\+?92[\s-]?|0)(3\d{2})[\s-]?(\d{3})[\s-]?(\d{4})(?!\d)", str(text or ""))
+    return "0" + m.group(1) + m.group(2) + m.group(3) if m else None
 
 
 def extract_order_id(text):
@@ -328,6 +339,14 @@ def all_colors_in(text):
 
 def extract_size(text):
     t = normalize(text)
+    if re.search(r"\b(xxl|xxxl|2xl|3xl|4xl|plus size|double xl)\b", t):
+        return "XXL"
+    m = re.search(r"\b(\d{1,2})\s*(?:saal|sal|years?|yrs?|year old)\b", t)
+    if m and not re.search(r"\d\s*-\s*\d", t):
+        age = int(m.group(1))
+        if 1 <= age <= 9:
+            return {1: "2-3Y", 2: "2-3Y", 3: "2-3Y", 4: "4-5Y", 5: "4-5Y", 6: "6-7Y",
+                    7: "6-7Y", 8: "8-9Y", 9: "8-9Y"}[age]
     m = re.search(r"\b(\d{1,2})\s*-\s*(\d{1,2})\s*(?:y|yr|yrs|years?|saal)\b", t)
     if m:
         return f"{m.group(1)}-{m.group(2)}Y"
@@ -354,14 +373,16 @@ def extract_size(text):
 def extract_qty(text, product_names=()):
     t = normalize(text)
     t = re.sub(r"03\d{9}", " ", t)
-    m = re.search(r"\b(?:qty|quantity|x)\s*(\d{1,3})\b", t)
-    if m:
+    m = re.search(r"\b(?:qty|quantity|x|make it|make that|kar do|kardo|karo|rakh do|quantity to)\s*(\d{1,3})\b(?!\s*-)", t) \
+        or re.search(r"\b(\d{1,3})\s*(?:kar do|kardo|karo|rakh do|kar dein)\b", t)
+    if m and not re.search(rf"\bsize\s*{m.group(1)}\b", t):
         return int(m.group(1))
     m = re.search(r"\b(\d{1,3})\s*(?:pieces?|pcs|items?|units?|qty|nos|piece|jor[ae]y?|pairs?)\b", t)
     if m and not re.search(rf"\b{m.group(1)}\s*-\s*piece", t):
         return int(m.group(1))
     product_words = {w for n in product_names for w in re.split(r"[\s\-&]+", n.lower()) if len(w) > 2}
     product_words |= {"kurta", "kurti", "shoes", "suit", "khussa", "chappal", "same"}
+    product_words |= set(PRODUCT_WORD_FIX) | set(PRODUCT_WORD_FIX.values())
     toks = t.split()
     for i, w in enumerate(toks):
         n = None
@@ -438,6 +459,10 @@ def match_product(text, product_names):
     freq = _token_freq(product_names)
     pm = re.search(r"\b(\d)\s*-?\s*(?:piece|pc)\b", t)
     generic = {"women", "men", "kids", "wear", "stitched"}
+    # adjectives that never single out a product on their own ('formal shirt'
+    # is a shirt, not the Organza Formal Suit)
+    weak = {"formal", "casual", "party", "classic", "embroidered", "printed", "plain",
+            "winter", "woolen", "cotton", "linen", "lawn", "chiffon", "slim", "fit"}
     best, best_score = None, 0.0
     for name in product_names:
         toks = _name_tokens(name)
@@ -452,7 +477,7 @@ def match_product(text, product_names):
         hit = set(exact) | set(fuzzy)
         if not hit:
             continue
-        distinct = [w for w in hit if w not in generic and freq[w] <= 1]
+        distinct = [w for w in hit if w not in generic and w not in weak and freq[w] <= 1]
         all_hit = all(w in hit for w in toks if w not in generic)
         if not (distinct or all_hit):
             continue
@@ -463,6 +488,9 @@ def match_product(text, product_names):
             (0.5 if all_hit else 0) + 0.3 * len(distinct)
         if pm and "piece" in name.lower():
             score += 3 if f"{pm.group(1)}-piece" in name.lower() else -3
+        # tie-break: the product named first in the message wins
+        first = min((t2.find(w) for w in exact if t2.find(w) >= 0), default=999)
+        score -= first / 10000
         if score > best_score:
             best, best_score = name, score
     return best if best_score >= 1.5 else None
@@ -501,31 +529,43 @@ def product_matches_filters(name, category, filters, gender=None):
         return False
     if gender == "kids" and c != "kids":
         return False
-    if gender == "men" and c == "footwear" and "khussa" in n:
-        pass
+    if gender in ("men", "women") and GENDERED.get(name, gender) != gender:
+        return False
     if not filters:
         return True
-    for field, val in filters:
-        if field == "name":
-            if val == "frock_or_dress":
-                if "frock" in n or c == "women stitched":
-                    return True
-            elif val == "hood":
-                if "hood" in n:
-                    return True
-            elif val in n:
+    kinds = [f for f in filters if f[0] != "occasion"]
+    occasions = [f for f in filters if f[0] == "occasion"]
+    if occasions and not any(_filter_hit(name, n, c, f) for f in occasions):
+        return False
+    if not kinds:
+        return True
+    return any(_filter_hit(name, n, c, f) for f in kinds)
+
+
+def _filter_hit(name, n, c, flt):
+    field, val = flt
+    if field == "name":
+        if val == "frock_or_dress":
+            if "frock" in n or c == "women stitched":
                 return True
-        elif field == "category":
-            if val == "bottoms_or_trouser":
-                if "bottoms" in c or "trouser" in n or "pants" in n:
-                    return True
-            elif val in c:
+        elif val == "hood":
+            if "hood" in n:
                 return True
-        elif field == "occasion":
-            if val == "festive" and name in FESTIVE_PRODUCTS:
+        elif val in n:
+            return True
+    elif field == "category":
+        if val == "bottoms_or_trouser":
+            if "bottoms" in c or "trouser" in n or "pants" in n:
                 return True
-            if val == "summer" and name in SUMMER_PRODUCTS:
-                return True
+        elif val in c:
+            return True
+    elif field == "occasion":
+        if val == "festive" and name in FESTIVE_PRODUCTS:
+            return True
+        if val == "summer" and name in SUMMER_PRODUCTS:
+            return True
+        if val == "office" and name in OFFICE_PRODUCTS:
+            return True
     return False
 
 

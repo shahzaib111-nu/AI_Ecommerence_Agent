@@ -567,6 +567,13 @@ class Store:
             "reviews": self.reviews_summary(),
         }
 
+    def units_sold(self):
+        """{product name: units ordered} — used for 'best sellers'."""
+        with self.lock:
+            return {r["name"]: r["u"] for r in self.conn.execute(
+                "SELECT c.name, SUM(o.qty) u FROM orders o JOIN catalog c ON c.sku=o.sku "
+                "WHERE o.status!='Cancelled' GROUP BY c.name")}
+
     # ------------------------------------------------------------ inventory
     def inventory(self, q=None, category=None, level=None, limit=600):
         """Variant rows for the staff Inventory page. level: low | out | None."""

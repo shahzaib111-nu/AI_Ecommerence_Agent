@@ -89,19 +89,20 @@ ACT/ASK/BLOCK/HANDOFF, reason, route, model prediction, tools used).
 ## The intent model
 
 ```bash
-python train_model.py     # ~5 s, no extra installs
+python train_model.py     # ~15 s, no extra installs
 ```
 
 - **Model:** TF-IDF over word 1-2 grams and character 3-4 grams, multinomial
   logistic regression trained with SGD — pure Python, saved as JSON
   (`models/intent_model.json`), so it loads on any Python version.
 - **Data:** `data/intent_seeds.json` (hand-written EN + Roman Urdu utterances,
-  22 intents incl. greeting, small talk, browse, affirm/deny) + templates built
+  30 intents incl. greeting, small talk, browse, size help, product info, cheapest/best seller,
+  off-topic, fillers, restart) + templates built
   from the catalog/orders/cities + every customer turn of the **dev**
   conversations. **Test** conversations are never trained on.
-- **Scores** (`models/metrics.json`): held-out accuracy 0.863 (macro F1 0.748,
-  n=219 short, hard utterances); per-turn accuracy on the unseen test
-  conversations 0.979 (n=96).
+- **Scores** (`models/metrics.json`): held-out accuracy 0.831 (macro F1 0.766,
+  n=295 short, deliberately hard utterances across 30 intents); per-turn accuracy
+  on the unseen test conversations 0.969 (n=96).
 
 Safety-critical decisions (refunds, limits, privacy, COD cap) stay in
 deterministic rules; the model routes everything else (greetings, browsing,
@@ -112,7 +113,7 @@ vague requests, paraphrases).
 ```bash
 python evaluation.py         # replays all 172 labelled conversations (~3 s)
 python tests/test_agent.py           # 44 unit checks, no pytest needed
-python tests/test_conversations.py   # 112 realistic chats + inventory/insights + 1,800-message fuzz test
+python tests/test_conversations.py   # 167 realistic chats + inventory/insights + 1,800-message fuzz test
 python F26-07.py             # scripted demo + evaluation
 ```
 

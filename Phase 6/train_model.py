@@ -125,6 +125,27 @@ def template_examples(rng):
         ex.append((rng.choice(["{b} tak ka {k} dikhao", "budget {b} hai {k} suggest karo", "{k} under {b}",
                                "suggest a {k} under rs {b}", "{b} ke around {k} chahiye koi acha",
                                "recommend {k} within {b}", "best {k} for {b}"]).format(b=b, k=cat_word), "recommend"))
+    kinds = ["kurta", "kurti", "suit", "shoes", "khussa", "abaya", "shawl", "hoodie", "sweater", "dupatta",
+             "hijab", "jeans", "trouser", "waistcoat", "frock", "shirt"]
+    colors = ["black", "white", "navy", "maroon", "pink", "grey", "blue", "red", "beige", "green"]
+    for _ in range(40):
+        k, c = rng.choice(kinds), rng.choice(colors)
+        ex.append((rng.choice(["{c} {k} dikhao", "{k} {c} mein hai?", "show me {c} {k}", "{c} {k}",
+                               "koi {c} {k} hai", "{k} M size mein", "do you have {k} in {c}"]).format(k=k, c=c), "browse"))
+    for _ in range(35):
+        p_, _c, _s = pick()
+        ex.append((rng.choice(["{p} ka fabric kya hai", "tell me about the {p}", "{p} ki quality kaisi hai",
+                               "what is the {p} made of", "{p} ke baare mein batao", "{p} details",
+                               "is the {p} soft", "describe {p}"]).format(p=p_), "product_info"))
+    for _ in range(30):
+        k = rng.choice(kinds)
+        ex.append((rng.choice(["sabse sasta {k}", "cheapest {k}", "most expensive {k}", "best selling {k}",
+                               "sab se mehenga {k} konsa hai", "{k} jo sab se zyada bikta hai", "latest {k}",
+                               "lowest price {k}"]).format(k=k), "superlative"))
+    for _ in range(25):
+        p_, _c, _s = pick()
+        ex.append((rng.choice(["{p} mein konsa size lun", "size chart for {p}", "{p} ka size kaise choose karun",
+                               "{p} XXL mein hai?", "which size {p} should i get"]).format(p=p_), "size_help"))
     for _ in range(60):
         cty = rng.choice(cities)
         ex.append((rng.choice(["{c} mein delivery kitne din mein", "delivery charges to {c}", "{c} ka delivery charge kitna hai",

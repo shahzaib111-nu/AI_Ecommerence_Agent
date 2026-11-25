@@ -98,7 +98,7 @@ class IntentModel:
 
     # ------------------------------------------------------------- train
     @classmethod
-    def train(cls, texts, labels, epochs=18, lr=0.6, l2=1e-5, min_df=1, seed=7):
+    def train(cls, texts, labels, epochs=30, lr=0.6, l2=1e-4, min_df=1, seed=7):
         classes = sorted(set(labels))
         cidx = {c: i for i, c in enumerate(classes)}
         feats = [features(t) for t in texts]

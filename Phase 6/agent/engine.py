@@ -43,7 +43,7 @@ ORDER_WORDS = (r"\border\b|\bbhej|chahiye|chahiyen|chahye|chaiye|\blena\b|\blene
                r"\bbuy\b|purchase|kar do|kardo|mangwa|book kar|\btake it\b|\bill take\b|"
                r"\bi will take\b|add to cart|checkout|\bsend me\b|\bdeliver kar")
 STATUS_CUES = (r"order kahan|order status|status|\btrack|tracking|(mera|my|meri) parcel|parcel kahan|"
-               r"parcel (kab|abhi)|where is my order|"
+               r"parcel (kab|abhi)|where is my order|late ho|der ho gayi|deri|order late|late hai|"
                r"mera order|my order|dispatch|shipped|kab (aye|aayega|aega|milega|pohanch)|"
                r"abhi tak nahi aaya|not arrived|hasnt arrived|courier kaun")
 EXCHANGE_CUES = r"exchange|tabdeel|badalna|badal do|badalwa|size change|color change|ki jagah|swap|replace"
@@ -63,6 +63,44 @@ FOLLOWUP_CUES = (r"what about|how about|and in\b|\bavailable\b|\bstock\b|\bprice
                  r"kitni ka|kitne ki|milega|mil jayega|\bcolou?rs?\b|\bsizes?\b|\bfabric\b|"
                  r"\bdetails?\b|\bdescribe\b|\bthis one\b|\bye wala\b|\bis it\b")
 MANY_RE = r"\b(each|every|all|sab|saare|sare|sabhi|both|dono|everything)\b"
+FILLER_RE = (r"(h+m+|hm+ ?ok|ach+a+|ac+ha+|acha ji|wait|ruko|ruk jao|ek (minute|min|sec|second)|"
+             r"one (sec|second|minute|min)|brb|lol+|ha(ha)+h?|he(he)+|k+|ok ok|thinking|"
+             r"soch (raha|rahi) (hoon|hun)|dekhta (hoon|hun)|dekhti (hoon|hun)|let me think|wow|oh+|ohh ok)")
+RESTART_RE = (r"(reset|restart|start over|start again|clear( chat| everything)?|new chat|shuru se|"
+              r"dobara shuru|phir se shuru|sab clear|naye sire se)( karo| kar do| please)?")
+FORGOT_RE = (r"(order|tracking) (number|no|id) (bhool|bhul|yaad nahi|nahi pata|nai pata|nahi yaad|lost|kho)|"
+             r"forgot (my )?(order|tracking)|dont (remember|know) (my )?order|don t (remember|know)|"
+             r"order number (kaise|kahan se) (pata|milega|maloom)")
+COMPLIMENT_RE = (r"(bohat|bahut|bht|very|really|so)? ?(acha|achi|achha|good|great|nice|zabardast|kamaal|"
+                 r"amazing|excellent|awesome|best|perfect|behtareen|lajawab) (service|store|website|bot|"
+                 r"assistant|kaam|experience|collection|kapre|shop)|i love (this|your|the)|love it|"
+                 r"well done|good job|keep it up|maza aa gaya|bohat khoob")
+SIZE_HELP_RE = (r"size chart|size guide|sizing|konsa size|kaunsa size|kon sa size|which size|what size should|"
+                r"size kya (hoga|lun|loon|rakhun)|mera size|my size|size (kaise|kese) (pata|chunu|choose)|"
+                r"fitting kaisi|fit kaisa|measurements?|naap|height|weight|kitna lamba|length kya")
+INFO_RE = (r"fabric|material|kapra kaisa|kapre ki quality|quality kaisi|quality kya|quality kesi|"
+           r"made of|made from|kis cheez ka|kis kapre|cotton hai|linen hai|pure hai|original hai|"
+           r"description|tell me about|ke baare mein|ke bare mein|details? (of|about|batao|bataen|do)|"
+           r"is it (cotton|linen|pure|original|soft|warm|heavy|light)|soft hai|garam hai|warm hai|"
+           r"\bis (the|this|it|that)\b[^?]*\b(made of )?(cotton|linen|silk|wool|woolen|polyester|pure|soft|warm|"
+           r"original|comfortable|breathable)\s*\?*$|\bquality\b|kapre kaise")
+COLOR_FAMILY = {"Blue": ["Navy", "Sky Blue", "Dark Blue", "Light Blue", "Teal"],
+                "Red": ["Maroon", "Burgundy", "Wine"], "Green": ["Emerald", "Olive", "Mint", "Teal"],
+                "Brown": ["Camel", "Tan", "Khaki"], "White": ["Ivory", "Cream", "Beige"],
+                "Grey": ["Charcoal"], "Yellow": ["Mustard", "Gold"], "Pink": ["Peach", "Lilac"],
+                "Black": ["Charcoal", "Navy"], "Navy": ["Dark Blue", "Blue"], "Maroon": ["Burgundy", "Wine", "Red"],
+                "Gold": ["Mustard", "Yellow"], "Purple": ["Lilac"], "Orange": ["Peach", "Mustard"]}
+SUPER_RE = (r"sa?b ?se (sasta|sasti|saste|kam price|kam qeemat|mehenga|mehnga|mehngi|mehange|acha|achi|zyada bik)|"
+            r"cheapest|lowest price|least expensive|most expensive|costliest|highest price|"
+            r"best ?sell(er|ers|ing)?|top sell|most popular|sab se zyada bik|new arrivals?|newest|latest|"
+            r"naya stock|naye products|nayi cheez")
+GENERIC_ASK_RE = (r"(price|prices|rate|available|availability|stock|in stock|order|buy|kharidna|lena|"
+                  r"size|sizes|color|colors|colour|colours|qeemat|kitne ka|kitne ki|kitna)"
+                  r"( kya hai| batao| bata do| please| hai)?")
+# words that must be present before the model alone may hand a chat to staff
+NEG_RE = (r"nahi|nai|not|\bno\b|bad|kharab|wrong|ghalat|galat|late|problem|masla|issue|complain|refund|"
+          r"return|cancel|discount|\bkam\b|human|insan|manager|call|phone|payment|jazz|easy|bank|card|"
+          r"useless|bakwas|worst|fraud|change|badal|wapas|paise|paisay|money|sasta|deal|offer|bargain")
 GREETING_RE = (r"(hi+|hey+|hello+|helo|hy|salam|salaam|assalam[a-z ]*|asalam[a-z ]*|aoa|"
                r"good (morning|evening|afternoon)|adaab|yo)\b")
 SALAM_RE = r"^(salam|salaam|assalam|asalam|aoa|as salam)"
@@ -191,7 +229,8 @@ class Engine:
         return ["Show products", "Track my order", "Delivery charges?", "Suggest something under 3000"]
 
     LEADS = {
-        "refund_request": ("I can't approve refunds myself — ", "Refund main khud approve nahi kar sakta — "),
+        "refund_request": ("I can't approve refunds myself (approved refunds take 7-10 working days) — ",
+                           "Refund main khud approve nahi kar sakta (approved refund 7-10 working days mein aata hai) — "),
         "return_request": ("Returns are handled by our staff — ", "Return hamari staff handle karti hai — "),
         "damaged_or_wrong_item": ("I'm really sorry about that! Please keep clear photos of the item ready "
                                   "(they're needed within 48 hours of delivery). ",
@@ -288,6 +327,7 @@ class Engine:
                 s["customer"]["name"] = user["name"]
             if user.get("phone") and not s["customer"].get("phone"):
                 s["customer"]["phone"] = user["phone"]
+            s["user_phone"] = user.get("phone")
         self.store.log_message(sid, "customer", message)
         t = nlu.normalize(message)
         lang = nlu.language_of(message)
@@ -300,6 +340,7 @@ class Engine:
                     if v not in (None, [], {}) and k not in ("details", "budget_mode")}
         if any(e["details"].values()):
             entities["details"] = {k: v for k, v in e["details"].items() if v}
+        self._infer_size(e, t, s)
         ml_intent, ml_conf, ml_top = self._ml(message)
         s["_ml_trace"] = {"intent": ml_intent, "confidence": round(ml_conf, 3), "top": ml_top} \
             if ml_intent else None
@@ -307,6 +348,8 @@ class Engine:
             s["_prefix"] = "Wa alaikum assalam! "
 
         if not t:
+            if any(ord(ch) > 0x2000 for ch in message):     # emoji only: 👍 😂
+                return self._ack(sid, s, entities)
             return self._help(sid, s, entities)
 
         # ---- 1. a summary is waiting for confirmation
@@ -358,7 +401,7 @@ class Engine:
             return self._escalate(sid, s, reason, "escalation", entities, message,
                                   f"intent model: {intent} ({conf:.2f})")
 
-        if intent not in ("unknown", "affirm", "deny", "thanks"):
+        if intent not in ("unknown", "affirm", "deny", "thanks", "ack"):
             s["unclear"] = 0
 
         # ---- 5. route
@@ -386,6 +429,24 @@ class Engine:
             return self._stock(sid, s, e, t, entities)
         if intent == "pick_from_list":
             return self._pick_from_list(sid, s, e, t, entities)
+        if intent == "ack":
+            return self._ack(sid, s, entities)
+        if intent == "restart":
+            return self._restart(sid, s, entities)
+        if intent == "forgot_order":
+            return self._forgot_order(sid, s, entities)
+        if intent == "compliment":
+            return self._compliment(sid, s, entities)
+        if intent == "size_help":
+            return self._size_help(sid, s, e, t, entities)
+        if intent == "product_info":
+            return self._product_info(sid, s, e, t, entities)
+        if intent == "superlative":
+            return self._superlative(sid, s, e, t, entities)
+        if intent == "ask_product":
+            return self._ask_product(sid, s, e, t, entities)
+        if intent == "out_of_scope":
+            return self._out_of_scope(sid, s, "that", entities)
         if intent in ("place_order", "provide_details") and \
                 (s["stage"] == "order_details" or intent == "place_order"):
             return self._order_flow(sid, s, e, t, message, entities)
@@ -405,6 +466,13 @@ class Engine:
         stage = s["stage"]
         awaiting = s.get("awaiting")
         ctx = s["context"]
+
+        # -- commands work in any state
+        if re.fullmatch(RESTART_RE, t):
+            return "restart", 0.95, "rule:restart"
+        # -- 'mujhe 3 kurte chahiye' ... 'Linen Kurta' ... 'black M' keeps the order going
+        if s.get("pending_qty") and (e["product"] or (ctx.get("product") and (e["color"] or e["size"]))):
+            return "place_order", 0.85, "rule:pending_qty"
 
         # -- slot answers for an active flow win over everything else
         if stage == "order_details":
@@ -428,6 +496,9 @@ class Engine:
                 return "place_order", 0.9, "rule:same_or_qty"
         if stage == "status" and (e["order_id"] or e["phone"]):
             return "order_status", 0.95, "slot:status"
+        if stage == "status" and re.search(r"\b(forgot|bhool|bhul|yaad nahi|pata nahi|nahi pata|dont know|"
+                                           r"don t know|not sure)\b", t):
+            return "forgot_order", 0.9, "slot:forgot"
         if stage == "exchange" and (e["order_id"] or e["phone"] or e["size"] or e["color"]):
             return "exchange", 0.95, "slot:exchange"
 
@@ -445,6 +516,25 @@ class Engine:
                         r"kya kar sakte ho|aap kya kar sakte (ho|hain))", t):
             return "help", 0.95, "rule:help"
 
+        if re.search(r"\b(bye|allah hafiz|khuda hafiz)\s*$|baat hoti hai|baad mein baat|phir milte|"
+                     r"chalta (hoon|hun)|chalti (hoon|hun)|see you|take care", t) and len(words) <= 7 \
+                and not e["product"] and not e["order_id"]:
+            return "goodbye", 0.9, "rule:goodbye_loose"
+        if re.search(r"samajh nahi|samjh nahi|samjha nahi|samjhi nahi|confused|dont understand|don t understand|"
+                     r"didnt understand|did not understand|kaise use|how (do i|to) use", t) and not e["product"]:
+            return "help", 0.9, "rule:confused"
+        if re.search(r"kya scene|kya haal|kya chal|how is it going|tum kya ho|aap kya ho|what are you\b", t) \
+                and len(words) <= 6:
+            return "smalltalk", 0.9, "rule:smalltalk"
+        if re.fullmatch(FILLER_RE + r"( (ji|bhai|yaar|ok))?", t):
+            return "ack", 0.9, "rule:filler"
+        if re.fullmatch(RESTART_RE, t):
+            return "restart", 0.95, "rule:restart"
+        if re.search(FORGOT_RE, t):
+            return "forgot_order", 0.9, "rule:forgot_order"
+        if re.search(COMPLIMENT_RE, t) and not re.search(r"nahi|not|\bno\b|kharab|bad", t):
+            return "compliment", 0.9, "rule:compliment"
+
         # -- order status / exchange
         exch = bool(re.search(EXCHANGE_CUES, t))
         if exch:
@@ -457,8 +547,36 @@ class Engine:
         if e["order_id"] and not order_words and not e["product"]:
             return "order_status", 0.85, "rule:order_id"
 
+        # -- product knowledge: sizes, fabric/description, cheapest / best seller
+        if e["size"] == "XXL" or (re.search(SIZE_HELP_RE, t) and not e["order_id"]):
+            return "size_help", 0.9, "rule:size_help"
+        if re.search(INFO_RE, t) and not e["order_id"]:
+            return "product_info", 0.9, "rule:product_info"
+        if re.search(r"owner kaun|who owns|owner (ka )?naam|who is the owner|malik kaun|kis ki dukan", t):
+            return "smalltalk", 0.9, "rule:owner"
+        if re.search(SUPER_RE, t):
+            return "superlative", 0.9, "rule:superlative"
+        if re.fullmatch(r"(next|more|aur|aur dikhao|show more|more please|more options|previous|back)", t):
+            return "recommend", 0.85, "rule:more"
+        if not e["product"] and not e["types"] and not e["color"] and self._shared_name_token(t) \
+                and len(words) <= 4 and not e["order_id"]:
+            return "browse", 0.8, "rule:name_token"
+        if re.fullmatch(r"\d{1,2}( pieces?| pcs| items?)?", t) and ctx.get("product") \
+                and s["last_action"] == "check_stock" and not e["size"]:
+            return "place_order", 0.85, "rule:qty_after_stock"
+        if re.fullmatch(GENERIC_ASK_RE + r"\??", t) or (re.fullmatch(r"\d{1,2}", t) and s["stage"] is None) or (
+                (e["size"] and not e["color"]) and len(words) <= 2 and not e["product"] and not e["types"]):
+            if ctx.get("product"):
+                return "check_stock", 0.8, "rule:context_generic"
+            if not s["items"]:
+                return "ask_product", 0.8, "rule:generic_ask"
+        if e["color"] and len(words) <= 2 and not e["product"] and not e["types"] and not ctx.get("product") \
+                and s["stage"] is None:
+            return "browse", 0.8, "rule:color_only"
+
         # -- recommendations (budget / suggest / refine the last list)
-        if e["budget"] or re.search(RECOMMEND_CUES, t):
+        if (e["budget"] or re.search(RECOMMEND_CUES, t)) and not (detect_topic(t) and not e["budget"]
+                                                                  and not e["types"] and not e["gender"]):
             if not e["product"] or not order_words:
                 return "recommend", 0.9, "rule:recommend"
         if s["last_action"] == "recommend" and not e["product"] and (
@@ -518,12 +636,19 @@ class Engine:
             strong = {"greeting", "thanks", "goodbye", "smalltalk", "help", "affirm", "deny"}
             if ml_conf >= 0.55 or (ml_intent in strong and ml_conf >= 0.35):
                 if ml_intent in ("refund", "complaint", "human_request", "discount_request",
-                                 "cancel_order", "change_order", "payment_request") and ml_conf < 0.75:
+                                 "cancel_order", "change_order", "payment_request") and (
+                        ml_conf < 0.75 or not re.search(NEG_RE, t)):
+                    pass
+                elif ml_intent == "out_of_scope" and (e["product"] or e["types"] or ml_conf < 0.6):
                     pass
                 elif ml_intent == "check_stock" and not ctx.get("product"):
                     return "browse" if e["types"] else "unknown", ml_conf, "ml:check_stock_no_product"
                 elif ml_intent == "place_order" and not (ctx.get("product") or s["items"]):
-                    return ("browse" if e["types"] else "unknown"), ml_conf, "ml:order_no_product"
+                    if e["types"]:
+                        return "browse", ml_conf, "ml:order_type"
+                    if re.search(r"\b(order|buy|purchase|book)\b", t):
+                        return "place_order", ml_conf, "ml:order_no_product"
+                    return "unknown", ml_conf, "ml:order_no_product"
                 else:
                     return ml_intent, ml_conf, "ml"
         if "?" in message or re.search(r"\bkya\b|sakta|sakti|kaise|how|what|why|when|where|do you|can i", t):
@@ -552,7 +677,7 @@ class Engine:
             return None
         if not all(re.fullmatch(r"[A-Za-z.]+", w) for w in words):
             return None
-        if raw.lower() in CONFIRM_WORDS | DENY_WORDS:
+        if raw.lower() in CONFIRM_WORDS | DENY_WORDS or re.fullmatch(RESTART_RE + "|" + FILLER_RE, raw.lower()):
             return None
         return raw.title()
 
@@ -581,6 +706,7 @@ class Engine:
 
     # --------------------------------------------------------- social turns
     def _greet(self, sid, s, entities):
+        s.pop("_prefix", None)
         t = nlu.normalize(self._last_text(sid))
         salam = bool(re.match(SALAM_RE, t))
         first = not s.get("greeted")
@@ -628,16 +754,27 @@ class Engine:
                          entities=entities)
 
     def _smalltalk(self, sid, s, t, entities):
-        if re.search(r"who are you|kaun|your name|naam kya|bot|robot|human|insaan|real|ai\b|person|made you|banaya", t):
+        if re.search(r"owner|malik|kis ki dukan|who owns", t):
+            reply = self._say(s, "Saira Fashion House is run by Eman Fatima and her team from Gujranwala. 😊 Tap "
+                                 "'About us & reviews' in the footer to read her note. Can I help you find something?",
+                              "Saira Fashion House Eman Fatima aur un ki team Gujranwala se chalati hai. 😊 Footer mein "
+                              "'About us & reviews' par un ka paigham parh sakte hain. Kuch dhoondhne mein madad karun?")
+        elif re.search(r"who are you|kaun|your name|naam kya|\bbot\b|robot|human|insaan|\breal\b|\bai\b|person|"
+                       r"made you|banaya|tum kya ho|aap kya ho|what are you", t):
             reply = self._say(s, "I'm the AI shopping assistant of Saira Fashion House. I work from the live "
                                  "catalog and store policy, so prices and stock are always real. For anything I "
                                  "can't decide (refunds, discounts, complaints), I hand you to our human staff.",
                               "Main Saira Fashion House ka AI shopping assistant hoon. Main live catalog aur "
                               "store policy se kaam karta hoon, is liye prices aur stock hamesha asli hote hain. "
                               "Jo faisle main nahi kar sakta (refund, discount, complaint) wo staff ko de deta hoon.")
-        elif re.search(r"how are you|kaise ho|kaisay ho|haal|how r u|whats up|kya chal", t):
+        elif re.search(r"how are you|kaise ho|kaisay ho|haal|how r u|whats up|kya chal|kya scene|how is it going", t):
             reply = self._say(s, "I'm doing great, thanks for asking! 😊 What can I help you shop for today?",
                               "Main bilkul theek hoon, poochne ka shukriya! 😊 Batayein aaj kya dekhna hai?")
+        elif re.search(r"owner|malik|kis ki dukan|who owns", t):
+            reply = self._say(s, "Saira Fashion House is run by Eman Fatima and her team from Gujranwala. 😊 Tap "
+                                 "'About us & reviews' in the footer to read her note. Can I help you find something?",
+                              "Saira Fashion House Eman Fatima aur un ki team Gujranwala se chalati hai. 😊 Footer mein "
+                              "'About us & reviews' par un ka paigham parh sakte hain. Kuch dhoondhne mein madad karun?")
         elif re.search(r"urdu|english|language|zuban", t):
             reply = self._say(s, "I understand both English and Roman Urdu — write however you like!",
                               "Main English aur Roman Urdu dono samajhta hoon — jaise marzi likhein!")
@@ -669,6 +806,8 @@ class Engine:
 
     def _affirm(self, sid, s, e, t, message, entities):
         ctx = s["context"]
+        if re.search(ORDER_WORDS, t):            # 'yes order it'
+            return self._order_flow(sid, s, e, t, message, entities)
         if s["last_action"] in ("check_stock",) and ctx.get("product") and ctx.get("in_stock"):
             return self._order_flow(sid, s, e, t, message, entities)
         reply = self._say(s, ["Great! What would you like to do next?", "Sure! What else can I show you?"],
@@ -728,6 +867,10 @@ class Engine:
             answer, chunk = self.rag.grounded_answer(t)
             tools.append({"name": "policy_rag", "result": {"section": chunk["title"], "score": chunk["score"]}})
             if answer is None:
+                if str(s.get("_route") or "").startswith("fallback") and not re.search(
+                        r"deliver|order|policy|exchange|refund|return|payment|stitch|size|fabric|kapr|wash|"
+                        r"gift|custom|price|stock|warranty|guarantee|staff|store|dukan|shop", t):
+                    return self._unclear(sid, s, t, message, entities)
                 return self._escalate(sid, s, "outside_policy", "policy_question", entities, message,
                                       f"RAG score {chunk['score']} below gate", tools=tools)
         if city and topic in ("delivery_charge", "delivery_time", "delivery_general"):
@@ -755,6 +898,221 @@ class Engine:
                          reason="out_of_scope", entities=entities,
                          suggestions=self._default_suggestions(s), reminder=True)
 
+    # ------------------------------------------------------- small helpers
+    def _sizes_of(self, product):
+        from .data_store import size_key
+        return sorted({v["size"] for v in self.store.variants_of(product)}, key=size_key)
+
+    @staticmethod
+    def _number_size(t, sizes, qty=None):
+        """'khussa 41', 'abaya 54', 'hoodie 6-7' -> size, if it is one of `sizes`
+        (or a plausible numeric size the product doesn't have, so we can say so)."""
+        t2 = re.sub(r"03\d{9}|\b\d{5}\b|\b\d{3,}\b", " ", t)
+        for a, b in re.findall(r"\b(\d{1,2})\s*-\s*(\d{1,2})\b", t2):
+            if f"{a}-{b}Y" in sizes:
+                return f"{a}-{b}Y"
+        numeric = [x for x in sizes if x.isdigit()]
+        for n in re.findall(r"\b(\d{1,2})\b(?!\s*-)", t2):
+            if re.search(rf"\b{n}\s*(pieces?|pcs|items?|piece)\b", t2) or (qty and int(n) == qty and n not in sizes):
+                continue
+            if n in sizes:
+                return n
+            if numeric and int(n) >= 8:
+                return n
+        return None
+
+    def _infer_size(self, e, t, s):
+        if e["size"]:
+            return
+        product = e["product"] or (s["context"].get("product") if not e["types"] else None)
+        if not product and s["stage"] == "order_details" and s["items"]:
+            product = s["items"][-1].get("product")
+        if not product:
+            return
+        sizes = set(self._sizes_of(product))
+        if s.get("awaiting") == "size" and re.fullmatch(r"\d{1,2}( number| size| no)?", t) and t.split()[0] in sizes:
+            e["size"], e["qty"] = t.split()[0], None
+            return
+        sz = self._number_size(t, sizes, e.get("qty"))
+        if sz:
+            e["size"] = sz
+            if e.get("qty") and str(e["qty"]) == sz:
+                e["qty"] = None
+
+    def _shared_name_token(self, t):
+        """'linen' -> 'linen' when several product names share that word."""
+        from collections import Counter
+        c = Counter(w for n in self.names() for w in set(n.lower().replace("-", " ").split()))
+        for w in t.split():
+            w = nlu.PRODUCT_WORD_FIX.get(w, w)
+            if len(w) > 3 and c.get(w, 0) >= 2 and w not in ("women", "kids", "wear", "stitched", "men"):
+                return w
+        return None
+
+    def _multi_items(self, t, product):
+        """'2 black linen kurta M aur 1 white L' -> two cart items."""
+        segs = [x for x in re.split(r"\s+(?:aur|and|plus|or)\s+|,", t) if x.strip()]
+        if len(segs) < 2:
+            return None
+        items, prod = [], product
+        for seg in segs:
+            p = nlu.match_product(seg, self.names()) or prod
+            c, sz, q = nlu._color_in(seg), nlu.extract_size(seg), nlu.extract_qty(seg, self.names())
+            if not (c or sz or q):
+                continue
+            prod = p
+            items.append({"product": p, "color": c, "size": sz, "qty": q})
+        if len(items) < 2:
+            return None
+        for i in range(1, len(items)):          # 'aur 1 white L' inherits nothing it names itself
+            if not items[i]["color"] and items[i]["product"] == items[i - 1]["product"]:
+                items[i]["color"] = items[i - 1]["color"]
+        return items
+
+    def _ack(self, sid, s, entities):
+        reply = self._say(s, ["Take your time — I'm right here whenever you're ready 🙂",
+                              "Sure, no rush! Just tell me what you'd like to see."],
+                          ["Koi jaldi nahi — jab tayyar hon bata dein 🙂",
+                           "Ji zaroor, aaram se! Jo dekhna ho bata dein."])
+        return self._out(sid, s, reply + self._flow_hint(s), "ack", "smalltalk", 0.8, "ACT",
+                         entities=entities, suggestions=self._default_suggestions(s))
+
+    def _restart(self, sid, s, entities):
+        self.store.release(sid)
+        for k, v in (("stage", None), ("items", []), ("pending", {}), ("awaiting", None), ("context", {}),
+                     ("rec", {}), ("shown", []), ("status", {}), ("exchange", {}), ("unclear", 0)):
+            s[k] = v
+        reply = self._say(s, "Fresh start! 🧹 Your cart is cleared. What would you like to look at?",
+                          "Naye sire se shuru! 🧹 Cart clear kar diya. Kya dekhna hai?")
+        return self._out(sid, s, reply, "restart", "smalltalk", 0.95, "ACT", entities=entities,
+                         suggestions=self._default_suggestions(s))
+
+    def _forgot_order(self, sid, s, entities):
+        phone = s.get("user_phone")
+        orders = self.store.orders_for_phone(phone) if phone else []
+        if orders:
+            lines = "; ".join(f"#{o['order_id']} ({o['product_name'] or o['sku']}, {o['status']})" for o in orders[:5])
+            reply = self._say(s, f"No problem — the orders on your account are: {lines}. Which one should I check?",
+                              f"Koi baat nahi — aap ke account par ye orders hain: {lines}. Konsa check karun?")
+            return self._out(sid, s, reply, "order_status", "request_missing_info", 0.85, "ASK",
+                             entities=entities, suggestions=[f"Order {o['order_id']} status" for o in orders[:3]])
+        reply = self._say(s, "No problem! Your order number is in the confirmation message you got when you ordered. "
+                             "If you have an account, sign in and open 'My orders' to see all of them. Otherwise our "
+                             "staff can look it up with your phone number — want me to connect you?",
+                          "Koi baat nahi! Order number confirmation message mein hota hai. Account hai to sign in kar ke "
+                          "'My orders' mein sab orders dekh sakte hain. Warna staff aap ke phone number se dhoondh sakti "
+                          "hai — connect kar dun?")
+        return self._out(sid, s, reply, "order_status", "request_missing_info", 0.8, "ASK", entities=entities,
+                         suggestions=(["Staff se baat karao"] if s.get("lang") == "ur" else ["Talk to staff"]))
+
+    def _compliment(self, sid, s, entities):
+        reply = self._say(s, ["Thank you so much! 😊 That means a lot to our team. Anything else I can help you find?",
+                              "That's so kind — thank you! 💚 Would you like to leave a review? (footer → About us & reviews)"],
+                          ["Bohat shukriya! 😊 Hamari team ke liye ye bohat maani rakhta hai. Aur kuch chahiye?",
+                           "Aap ka bohat shukriya! 💚 Review dena chahein to footer mein 'About us & reviews' dabayein."])
+        return self._out(sid, s, reply, "compliment", "smalltalk", 0.9, "ACT", entities=entities,
+                         suggestions=self._default_suggestions(s))
+
+    def _size_help(self, sid, s, e, t, entities):
+        product = e["product"] or s["context"].get("product")
+        tools = []
+        if e["size"] == "XXL":
+            what = f"{product} " if product else ""
+            sizes = self._sizes_of(product) if product else ["S", "M", "L", "XL"]
+            reply = self._say(s, f"Sorry, our {what}sizes only go up to {sizes[-1]} — we don't carry XXL or plus sizes. "
+                                 f"Available: {', '.join(sizes)}." + ("" if product else " Free-size items (shawls, "
+                                 "dupattas, hijabs, unstitched fabric) fit everyone."),
+                              f"Maazrat, hamare {what}sizes {sizes[-1]} tak hain — XXL ya plus size nahi hota. "
+                              f"Available: {', '.join(sizes)}." + ("" if product else " Free size items (shawl, dupatta, "
+                              "hijab, unstitched) sab ko aa jate hain."))
+        elif product:
+            sizes = self._sizes_of(product)
+            tools.append({"name": "product_sizes", "result": {"product": product, "sizes": sizes}})
+            reply = self._say(s, f"{product} comes in {', '.join(sizes)}. I don't have a measurement chart for it, so if "
+                                 "you're between sizes, the larger one is usually safer — and you can exchange for another "
+                                 "size within 7 days of delivery (unused, with tags"
+                                 + (", not for sale items)." if self.tools.product_overview(product)["is_sale"] else ")."),
+                              f"{product} ke sizes: {', '.join(sizes)}. Is ka measurement chart mere paas nahi, is liye do "
+                              "sizes ke beech hon to bara size lena behtar hai — aur delivery ke 7 din ke andar doosre size "
+                              "se exchange ho sakta hai (unused, tags ke saath).")
+        else:
+            reply = self._say(s, "Our sizes: clothing S, M, L, XL · kids by age 2-3Y, 4-5Y, 6-7Y, 8-9Y · khussa & sandals "
+                                 "36-41 · Peshawari chappal 8-11 · abayas 52-56 · jeans/chinos waist 30-36 · shawls, "
+                                 "dupattas and hijabs are free size. I don't have a measurement chart, but if a size "
+                                 "doesn't fit you can exchange it within 7 days. Which product are you looking at?",
+                              "Hamare sizes: kapre S, M, L, XL · bachon ke umar ke hisaab se 2-3Y, 4-5Y, 6-7Y, 8-9Y · "
+                              "khussa/sandals 36-41 · Peshawari chappal 8-11 · abaya 52-56 · jeans/chino waist 30-36 · "
+                              "shawl, dupatta, hijab free size. Measurement chart nahi hai, lekin size fit na ho to 7 din "
+                              "mein exchange ho sakta hai. Konsa product dekh rahe hain?")
+        return self._out(sid, s, reply, "size_help", "answer_policy", 0.85, "ACT", tools=tools,
+                         entities=entities, suggestions=self._default_suggestions(s))
+
+    def _product_info(self, sid, s, e, t, entities):
+        product = e["product"] or s["context"].get("product")
+        if not product:
+            names = s.get("shown") or [p["name"] for p in self.tools.browse(e["types"], e["gender"])[1]]
+            s["awaiting"] = "pick"
+            s["shown"] = names
+            reply = self._say(s, "Which one would you like to know about? Tap one below.",
+                              "Kis product ke baare mein jaanna hai? Neeche tap karein.")
+            return self._out(sid, s, reply, "product_info", "request_missing_info", 0.7, "ASK",
+                             entities=entities, suggestions=[f"Tell me about the {n}" for n in names[:4]])
+        ov = self.tools.product_overview(product)
+        s["context"] = {"product": product, "in_stock": ov["available"] > 0}
+        stock_cols = [c["color"] for c in ov["by_color"] if c["available"] > 0]
+        reply = self._say(s, f"{product}: {ov['description']} Price {_money(ov['price'])}"
+                             + (" (sale)" if ov["is_sale"] else "") + f". Sizes {', '.join(ov['sizes'])}; in stock in "
+                             f"{', '.join(stock_cols) or 'no colors right now'}. I only have the catalog description — for "
+                             "washing or care instructions our staff can help.",
+                          f"{product}: {ov['description']} Price {_money(ov['price'])}"
+                          + (" (sale)" if ov["is_sale"] else "") + f". Sizes {', '.join(ov['sizes'])}; stock mein colors: "
+                          f"{', '.join(stock_cols) or 'abhi koi nahi'}. Mere paas sirf catalog ki description hai — "
+                          "dhulai/care ke liye staff madad kar sakti hai.")
+        card = {"product_id": ov["product_id"], "name": product, "category": ov["category"], "price": ov["price"],
+                "original_price": ov["original_price"], "is_sale": ov["is_sale"], "colors": ov["colors"],
+                "sizes": ov["sizes"], "available": ov["available"]}
+        return self._out(sid, s, reply, "product_info", "check_stock", 0.9, "ACT",
+                         tools=[{"name": "product_overview", "result": {"product": product}}],
+                         entities=entities, products=[card], suggestions=[f"{c} {ov['sizes'][0]}" for c in stock_cols[:3]])
+
+    def _superlative(self, sid, s, e, t, entities):
+        filters, gender = e["types"], e["gender"]
+        prods = [p for p in self.tools.browse(filters, gender)[0] if p["available"] > 0]
+        if re.search(r"expensive|mehen?g|costliest|highest|premium", t):
+            mode, prods = "expensive", sorted(prods, key=lambda p: -p["price"])
+            en, ur = "Our most premium picks", "Sab se premium options"
+        elif re.search(r"sasta|sasti|saste|cheap|lowest|least|kam price|kam qeemat", t):
+            mode, prods = "cheapest", sorted(prods, key=lambda p: p["price"])
+            en, ur = "The most affordable options", "Sab se kam qeemat wale options"
+        elif re.search(r"new|latest|naya|naye|nayi", t):
+            mode, prods = "newest", sorted(prods, key=lambda p: p["product_id"], reverse=True)
+            en, ur = "Our latest additions", "Hamare naye products"
+        else:
+            sold = self.store.units_sold()
+            mode, prods = "best", sorted(prods, key=lambda p: (-sold.get(p["name"], 0), p["name"]))
+            en, ur = "Our best sellers", "Hamare best sellers"
+        top = prods[:5]
+        if not top:
+            return self._browse(sid, s, e, t, entities)
+        s["context"] = {}
+        s["shown"] = [p["name"] for p in top]
+        s["rec"] = {"filters": filters, "gender": gender, "shown": s["shown"]}
+        lines = "; ".join(f"{p['name']} {_money(p['price'])}" + (" (SALE)" if p["is_sale"] else "") for p in top)
+        reply = self._say(s, f"{en}: {lines}. Tap one for colors and sizes.", f"{ur}: {lines}. Kisi par tap karein.")
+        return self._out(sid, s, reply, "recommend", "recommend", 0.9, "ACT",
+                         tools=[{"name": "rank_products", "result": {"mode": mode, "filters": filters, "gender": gender}}],
+                         entities=entities, products=[self._card(p) for p in top],
+                         suggestions=[f"{top[0]['name']} price?"])
+
+    def _ask_product(self, sid, s, e, t, entities):
+        what = f" in size {e['size']}" if e["size"] else ""
+        reply = self._say(s, f"Sure! Which product{what} should I check? You can type its name (e.g. \"linen kurta\") "
+                             "or browse below.",
+                          f"Zaroor! Konsa product{(' size ' + e['size']) if e['size'] else ''} check karun? Naam likh dein "
+                          "(jaise \"linen kurta\") ya neeche se dekh lein.")
+        return self._out(sid, s, reply, "check_stock", "request_missing_info", 0.6, "ASK", entities=entities,
+                         suggestions=["Show me kurtas", "Women suits", "Footwear", "Best sellers"])
+
     def _pick_from_list(self, sid, s, e, t, entities):
         shown = s.get("shown") or []
         s["awaiting"] = "pick"
@@ -778,7 +1136,11 @@ class Engine:
     def _browse(self, sid, s, e, t, entities):
         filters, gender = e["types"], e["gender"]
         sale_only = bool(re.search(r"\bsale\b|discounted|on sale", t))
-        if not filters and not gender and not sale_only:
+        if not filters and not gender and not sale_only and not e["color"]:
+            tok = self._shared_name_token(t)
+            if tok:
+                filters = [("name", tok)]
+        if not filters and not gender and not sale_only and not e["color"]:
             if not re.search(EXPLICIT_BROWSE, t):
                 # 'wo wala dikhao' — vague, not a browse request
                 return self._unclear(sid, s, t, "", entities)
@@ -795,19 +1157,77 @@ class Engine:
         allp, shown = self.tools.browse(filters, gender, sale_only)
         tools = [{"name": "browse_catalog", "result": {"filters": filters, "gender": gender,
                                                         "sale_only": sale_only, "matches": len(allp)}}]
+        # 'blue kurta', 'abaya 54 navy', 'jootay size 42' — narrow by color / size
+        want_c = e["color"]
+        want_s = e["size"] if e["size"] != "XXL" else None
+        if not want_s:
+            all_sizes = {v["size"] for p in allp for v in self.store.variants_of(p["name"])}
+            want_s = self._number_size(t, all_sizes, e.get("qty"))
+        if (want_c or want_s) and allp:
+            hits = []
+            for p in allp:
+                if any((not want_c or v["color"] == want_c) and (not want_s or v["size"] == want_s)
+                       and self.store.available(v["sku"]) > 0 for v in self.store.variants_of(p["name"])):
+                    hits.append(p)
+            tools[0]["result"].update({"color": want_c, "size": want_s, "in_stock_matches": len(hits)})
+            what = " ".join(x for x in (want_c, f"size {want_s}" if want_s else None) if x)
+            if not hits and want_c in COLOR_FAMILY:
+                fam = COLOR_FAMILY[want_c]
+                hits = [p for p in allp if any(v["color"] in fam and (not want_s or v["size"] == want_s)
+                                                and self.store.available(v["sku"]) > 0
+                                                for v in self.store.variants_of(p["name"]))]
+                if hits:
+                    near = sorted({v["color"] for p in hits for v in self.store.variants_of(p["name"]) if v["color"] in fam})
+                    what = " / ".join(near) + (f" size {want_s}" if want_s else "")
+                    s["_near_note"] = want_c
+                    want_c = None
+            if len(hits) == 1 and want_c:
+                e2 = dict(e); e2["product"] = hits[0]["name"]; e2["size"] = want_s
+                s["context"] = {}
+                return self._stock(sid, s, e2, t, entities)
+            if not hits:
+                s["context"] = {}
+                s["shown"] = [p["name"] for p in shown]
+                have_s = sorted({v["size"] for p in allp for v in self.store.variants_of(p["name"])},
+                                key=lambda x: (not x[0].isdigit(), int(x.split("-")[0]) if x[0].isdigit() else 0, x))
+                extra_en = f" Sizes we carry here: {', '.join(have_s)}." if want_s else ""
+                reply = self._say(s, f"Sorry, nothing in {what} is in stock right now.{extra_en} Here's what we do have — "
+                                     "tap one to see its colors and sizes:",
+                                  f"Maazrat, {what} mein abhi kuch stock mein nahi. Ye options available hain — "
+                                  "tap kar ke colors aur sizes dekhein:")
+                return self._out(sid, s, reply, "browse", "browse", 0.7, "ACT", tools=tools,
+                                 entities=entities, products=[self._card(p) for p in shown[:6]],
+                                 suggestions=[p["name"] for p in shown[:3]])
+            allp, shown = hits, hits[:8]
+            s["_filter_note"] = what
         s["rec"] = {"filters": filters, "gender": gender, "shown": [p["name"] for p in shown]}
         # a new list replaces whatever single product was being discussed
         s["context"] = {}
+        if e.get("qty") and e["qty"] > 1:
+            s["pending_qty"] = e["qty"]
         s["shown"] = [p["name"] for p in shown]
         if s["stage"] == "order_details" and s["_route"] == "rule:switch_type":
             self.store.release(sid)
             s["stage"] = None; s["items"] = []; s["awaiting"] = None
+        if len(allp) == 1 and not s.get("_filter_note") and not s.get("_near_note"):
+            e2 = dict(e); e2["product"] = allp[0]["name"]
+            s["shown"] = []
+            if re.search(ORDER_WORDS, t) or re.search(r"\b(buy|want to buy|lena)\b", t):
+                return self._order_flow(sid, s, e2, t, self._last_text(sid), entities)
+            return self._stock(sid, s, e2, t, entities)
         if not shown:
             reply = self._say(s, "I couldn't find anything matching that in our catalog. Want to see all categories?",
                               "Is tarah ka koi product catalog mein nahi mila. Saari categories dikhaun?")
             return self._out(sid, s, reply, "browse", "browse", 0.6, "ASK", tools=tools,
                              entities=entities, suggestions=["Show categories"])
         names = "; ".join(f"{p['name']} ({_money(p['price'])})" for p in shown[:5])
+        note = s.pop("_filter_note", None)
+        near = s.pop("_near_note", None)
+        if note:
+            names = (f"in {note}: " if s.get("lang") != "ur" else f"{note} mein: ") + names
+        if near:
+            names = (f"(no exact {near}, but close shades) " if s.get("lang") != "ur"
+                     else f"({near} bilkul nahi, lekin milte julte rang) ") + names
         more = len(allp) - len(shown)
         reply = self._say(s, f"Here's what we have: {names}" + (f" — and {more} more." if more > 0 else ".") +
                           " Tap a product for colors and sizes, or tell me which one you like.",
@@ -826,6 +1246,8 @@ class Engine:
         gender = e["gender"] or rec.get("gender")
         more = bool(re.search(r"more|aur dikhao|aur options|next|mazeed", t))
         explicit = re.search(r"suggest|recommend|options|best|popular|trending|gift|cheap|sasta|affordable", t)
+        if not (budget or filters or gender or explicit or refine) and re.search(r"more|next|previous|back|aur dikhao|options", t):
+            return self._superlative(sid, s, e, "best seller", entities)
         if not (budget or filters or gender or explicit or refine):
             s["unclear"] += 1
             s["rec"] = {}
@@ -922,6 +1344,9 @@ class Engine:
         if not res["found"]:
             bad = res.get("invalid", {})
             what = " ".join(v for v in (bad.get("color"), bad.get("size")) if v)
+            close = [c for c in COLOR_FAMILY.get(bad.get("color") or "", []) if c in res["colors"]]
+            if close:
+                what += f" (closest: {', '.join(close)})"
             reply = self._say(s, f"{product} doesn't come in {what}. Available colors: {', '.join(res['colors'])}; "
                                  f"sizes: {', '.join(res['sizes'])}.",
                               f"{product} {what} mein nahi aata. Colors: {', '.join(res['colors'])}; "
@@ -969,7 +1394,7 @@ class Engine:
                                   f"({res['available']} available) at {_money(res['price'])}{sale}."
                                   + (" Only a few left!" if low else "") + " Would you like to order it?",
                                   f"Good news — {res['product']} {res['color']} {res['size']} is available: "
-                                  f"{res['available']} pieces at {_money(res['price'])}{sale}. Shall I place an order?"],
+                                  f"{res['available']} piece{'s' if res['available'] != 1 else ''} at {_money(res['price'])}{sale}. Shall I place an order?"],
                               [f"Ji, {res['product']} {res['color']} size {res['size']} available hai — "
                                f"{res['available']} pieces hain, price {_money(res['price'])} hai."
                                + (" Sirf thore bache hain!" if low else "") + " Order karna hai to qty bata dein.",
@@ -1180,8 +1605,11 @@ class Engine:
                     extra["qty"] = n or 1
                     items.append(extra)
             s["items"] = items
+        elif product and self._multi_items(t, product):
+            s["items"] = self._multi_items(t, product)
         elif product:
-            item = {"product": product, "color": e["color"], "size": e["size"], "qty": e["qty"]}
+            item = {"product": product, "color": e["color"], "size": e["size"],
+                    "qty": e["qty"] or s.pop("pending_qty", None)}
             if product == ctx.get("product"):
                 item["color"] = item["color"] or ctx.get("color")
                 item["size"] = item["size"] or ctx.get("size")
@@ -1201,7 +1629,7 @@ class Engine:
                     cur["qty"] = e["qty"]
         elif ctx.get("product"):
             s["items"] = [{"product": ctx.get("product"), "color": e["color"] or ctx.get("color"),
-                           "size": e["size"] or ctx.get("size"), "qty": e["qty"]}]
+                           "size": e["size"] or ctx.get("size"), "qty": e["qty"] or s.pop("pending_qty", None)}]
         s["stage"] = "order_details"
         if not s["items"]:
             s["awaiting"] = "product"
@@ -1244,6 +1672,13 @@ class Engine:
                               + (f" ({got} note kar liya hai.)" if got else ""))
             return self._out(sid, s, reply, "place_order", "request_missing_info", 0.85, "ASK",
                              reason="invalid_phone", entities=entities)
+
+        # ---- 'only 1 left — want 1 instead?' is accepted by anything but a new quantity
+        if s.get("awaiting") == "qty" and s.get("offer_qty") and s["items"]:
+            if not e["qty"]:
+                s["items"][-1]["qty"] = s["offer_qty"]
+            s.pop("offer_qty", None)
+            s["awaiting"] = None
 
         # ---- validate every item
         for it in s["items"]:
@@ -1300,6 +1735,7 @@ class Engine:
                     reply = self._say(s, f"Only {avail} of {it['product']} {v['color']} {v['size']} left — want {avail} instead?",
                                       f"{it['product']} {v['color']} {v['size']} ke sirf {avail} pieces bache hain — {avail} kar dun?")
                     s["awaiting"] = "qty"
+                    s["offer_qty"] = avail
                 else:
                     reply = self._say(s, f"Sorry, {it['product']} {v['color']} size {v['size']} is out of stock (0 available), "
                                          "so I can't order it." + (f" Available instead: {alt_txt}." if alts else ""),

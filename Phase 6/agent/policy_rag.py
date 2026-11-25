@@ -110,27 +110,30 @@ class PolicyRAG:
 TOPIC_PATTERNS = [
     ("international", r"abroad|outside pakistan|international|bahar ke mulk|bahar mulk|"
                       r"\bmulk\b|overseas|\buk\b|\busa\b|dubai|saudi|canada|other country|foreign"),
-    ("showroom", r"showroom|walk[- ]?in|\bshop kahan\b|store kahan|location|kahan (hai|ho|hain) aap|"
+    ("contact", r"contact|whatsapp|email|e-mail|helpline|phone number (do|kya|batao)|number (do|batao|kya hai)|"
+                r"call (kar|kaise)|reach (you|staff)"),
+    ("showroom", r"kahan se (ho|hain)|where are you (from|based)|based (in|kahan)|showroom|walk[- ]?in|\bshop kahan\b|store kahan|location|kahan (hai|ho|hain) aap|"
                  r"address kya|visit|aa kar|a kar dekh|physical store|outlet|\bdukaan\b|\bdukan\b"),
     ("hours", r"working hours|timing|timings|kab tak reply|staff kab|kab reply|office hours|"
               r"open hours|kab khulta|staff available|human kab|when.*(staff|reply|open)|band kab"),
     ("refund_policy", r"refund policy|refund kitne din|refund kab tak|refund process|"
-                      r"how long.*refund|return policy"),
+                      r"how long.*refund|return policy|can i return|return (kar|ho) sakt|return possible"),
     ("exchange_policy", r"exchange"),
-    ("cod", r"\bcod\b|cash on delivery|cash|payment method|pay kaise|payment kaise|"
+    ("cod", r"cod ke ilawa|other payment|payment options?|koi aur (payment|tareeqa)|ilawa koi option|\bcod\b|cash on delivery|cash|payment method|pay kaise|payment kaise|"
             r"kaise pay|how (do|can) i pay|payment option"),
     ("free_delivery", r"free delivery|free shipping|delivery free|muft"),
-    ("delivery_time", r"kitne din|how long|how many days|kab tak (aye|aaye|milega|pohanch|deliver)|"
+    ("delivery_time", r"kal tak|tomorrow|same day|next day|kab tak hogi|kab hogi|kab tak (milega|aayega|aye)|"
+                      r"kitne din|how long|how many days|kab tak (aye|aaye|milega|pohanch|deliver)|"
                       r"delivery time|kab milega|kab aye|kab aayega|days|din mein|eta|"
                       r"jaldi deliver|kab pohanch"),
     ("delivery_charge", r"delivery charge|delivery charges|shipping charge|shipping cost|"
                         r"delivery fee|delivery kitn|courier charge|charges kitn|delivery ka kharcha|"
-                        r"charge kitna|delivery cost|charges"),
+                        r"charge kitna|delivery cost|charges|\bcharge\b"),
     ("delivery_general", r"deliver|delivery|shipping|ship to|courier"),
     ("order_limits", r"max(imum)? (qty|quantity)|kitne pieces|bulk|limit"),
     ("how_to_order", r"how (do|can|to) i? ?(order|buy|place)|order kaise|kaise order|order karne ka tareeqa"),
     ("privacy", r"privacy|data safe|information safe|personal info"),
-    ("sale", r"\bsale\b|offer|deals?\b"),
+    ("sale", r"\bsale\b|offer|deals?\b|discount code|promo|coupon|voucher"),
 ]
 
 
@@ -166,6 +169,12 @@ def topic_answer(topic, t, city, lang, rules):
                 f"working days mein hoti hai." if ur else
                 f"For {city}, delivery is {_money(ch)} and takes {lo}-{hi} working days.")
 
+    if topic == "contact":
+        return ("Hamari staff se baat ka sab se aasan tareeqa yahi chat hai — 'staff se baat karao' likhein, "
+                f"main aap ko connect kar dunga. Staff roz {rules.get('human_hours', '10:00-20:00 PKT')} available hoti hai."
+                if ur else
+                "The quickest way to reach our staff is right here in this chat — just type 'talk to staff' and "
+                f"I'll connect you. Staff are available daily {rules.get('human_hours', '10:00-20:00 PKT')}.")
     if topic == "international":
         return ("Maazrat, hum sirf Pakistan ke andar deliver karte hain — bahar ke mulk "
                 "delivery available nahi hai." if ur else
@@ -226,7 +235,10 @@ def topic_answer(topic, t, city, lang, rules):
                      if ur else f" Orders of {_money(d['free_delivery_min_product_total'])}+ ship free.")
             return cl + extra
         if topic == "delivery_time":
-            return (f"{major}: {a_lo}-{a_hi} working days. Baqi shehar: {o_lo}-{o_hi} working days."
+            note = (" Exact date ka wada nahi kar sakte — ye estimated time hai." if ur else
+                    " I can't promise an exact date — these are estimates.") \
+                if re.search(r"kal|tomorrow|same day|next day|aaj|today", t) else ""
+            return (note.strip() + " " if note else "") + (f"{major}: {a_lo}-{a_hi} working days. Baqi shehar: {o_lo}-{o_hi} working days."
                     if ur else
                     f"{major}: {a_lo}-{a_hi} working days. All other cities: {o_lo}-{o_hi} working days.")
         return (f"Delivery charges: {major} ke liye {_money(d['tier_a_charge'])}, baqi shehron ke "
