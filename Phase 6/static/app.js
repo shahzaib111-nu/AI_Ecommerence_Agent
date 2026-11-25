@@ -505,17 +505,107 @@ async function viewAdmin(params) {
     return;
   }
   const tab = params.get("tab") || "dashboard";
-  const tabs = [["dashboard", "Dashboard"], ["handoffs", "Hand-offs"], ["orders", "Orders"], ["evaluation", "Evaluation & model"]];
+  const tabs = [["dashboard", "Dashboard"], ["insights", "Insights"], ["inventory", "Inventory"], ["handoffs", "Hand-offs"], ["orders", "Orders"], ["evaluation", "Evaluation & model"]];
   $("#view").innerHTML = `<div class="mx-auto max-w-7xl px-4 py-8">
     <div class="flex flex-wrap items-center gap-2"><h1 class="mr-4 font-display text-2xl font-bold">Staff console</h1>
       ${tabs.map(([k, l]) => `<a href="#/admin?tab=${k}" class="navlink ${tab === k ? "navlink-on" : ""}">${l}</a>`).join("")}
       <button id="resetStore" class="btn-ghost btn-sm ml-auto">Reset demo data</button></div>
     <div id="adminBody" class="mt-6"></div></div>`;
   $("#resetStore").onclick = async () => {
-    if (!confirm("Reset catalog, stock, orders, chats and tickets back to the original dataset? Accounts and reviews are kept.")) return;
+    if (!confirm("Reset catalog, stock, orders, chats and tickets back to the original dataset? Stock changes and products you added will be lost. Accounts and reviews are kept.")) return;
     await api("/api/reset", { body: {} }); toast("Demo data reset"); route();
   };
-  await ({ dashboard: adminDashboard, handoffs: adminHandoffs, orders: adminOrders, evaluation: adminEval }[tab] || adminDashboard)(params);
+  await ({ dashboard: adminDashboard, insights: adminInsights, inventory: adminInventory, handoffs: adminHandoffs, orders: adminOrders, evaluation: adminEval }[tab] || adminDashboard)(params);
+}
+
+async function adminInsights() {
+  const d = await api("/api/admin/insights");
+  const k = d.kpis;
+  const lvl = { warn: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100", info: "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100", ok: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100" };
+  const mxDay = Math.max(1, ...d.daily.map((x) => x.rev));
+  $("#adminBody").innerHTML = `
+  <div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+    ${kpi(money(k.revenue), "Revenue", `${k.orders} orders`)}${kpi(money(k.avg_order_value), "Avg. order value")}
+    ${kpi(k.chat_conversion_percent + "%", "Chat → order", `${k.chat_orders} of ${k.conversations} chats bought`)}
+    ${kpi(k.open_handoffs, "Waiting for staff")}${kpi(k.out_of_stock, "Out of stock", "variants")}${kpi(k.low_stock, "Low stock", "1–4 left")}
+  </div>
+  <div class="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">${d.tips.map((t) => `<div class="rounded-2xl border p-4 ${lvl[t.level] || lvl.info}"><div class="font-bold">${esc(t.title)}</div><div class="mt-1 text-sm opacity-90">${esc(t.text)}</div></div>`).join("") || `<p class="text-sm text-slate-400">No insights yet — they appear as customers chat and order.</p>`}</div>
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <div class="card p-5"><h3 class="font-bold">Sales — last 14 days</h3>
+      ${d.daily.length ? `<div class="mt-4 flex h-44 items-end gap-1.5">${d.daily.map((x) => `<div class="group relative flex flex-1 flex-col items-center justify-end"><div class="w-full rounded-t-md bg-brand-500 transition group-hover:bg-brand-700" style="height:${Math.max(4, (x.rev / mxDay) * 150)}px"></div><div class="mt-1 text-[10px] text-slate-400">${esc(x.d.slice(5))}</div><div class="pointer-events-none absolute -top-8 hidden whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[11px] text-white group-hover:block">${x.n} orders · ${money(x.rev)}</div></div>`).join("")}</div>` : `<p class="mt-2 text-sm text-slate-400">No orders yet.</p>`}</div>
+    <div class="card p-5"><h3 class="font-bold">Revenue by category</h3><div class="mt-3">${bars(Object.fromEntries(d.by_category.map((c) => [c.category, c.rev])), "bg-brand-500")}</div>
+      <p class="mt-3 text-xs text-slate-500">By channel: ${Object.entries(d.by_channel).map(([ch, v]) => `${esc(ch)} ${v.orders} orders (${money(v.revenue)})`).join(" · ")}</p></div>
+  </div>
+  <div class="mt-4 grid gap-4 lg:grid-cols-2">
+    <div class="card p-5"><h3 class="font-bold">Asked for, but out of stock</h3><p class="text-xs text-slate-500">Restock these first — customers wanted them.</p>
+      <div class="mt-2">${table(d.stockout_demand, [["variant", "Variant"], ["requests", "Requests"]])}</div></div>
+    <div class="card p-5"><h3 class="font-bold">Messages the assistant couldn't answer</h3><p class="text-xs text-slate-500">Unclear or off-topic — useful for improving the bot or the catalog.</p>
+      <div class="mt-2 max-h-72 overflow-y-auto scrollbar-thin">${table(d.unanswered, [["message", "Customer said"], ["kind", "Type", (r) => `<span class="pill ${r.kind === "out_of_scope" ? "bg-slate-100 text-slate-700" : "bg-amber-100 text-amber-800"}">${r.kind === "out_of_scope" ? "off-topic" : "unclear"}</span>`], ["ts", "When", (r) => new Date(r.ts * 1000).toLocaleString()]])}</div></div>
+  </div>`;
+}
+
+async function adminInventory(params) {
+  const q = params.get("q") || "", cat = params.get("cat") || "", lv = params.get("lv") || "";
+  const qs = new URLSearchParams(); if (q) qs.set("q", q); if (cat) qs.set("category", cat); if (lv) qs.set("level", lv);
+  const d = await api("/api/admin/inventory?" + qs);
+  $("#adminBody").innerHTML = `
+  <div class="mb-3 flex flex-wrap items-center gap-2">
+    <input id="iq" class="input w-60 rounded-full" placeholder="Search name, SKU, color…" value="${esc(q)}">
+    <select id="icat" class="input w-auto rounded-full"><option value="">All categories</option>${d.categories.map((c) => `<option ${c === cat ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    ${[["", "All"], ["low", "Low stock"], ["out", "Out of stock"]].map(([v, l]) => `<button class="chip ${lv === v ? "chip-on" : ""}" data-lv="${v}">${l}</button>`).join("")}
+    <span class="text-sm text-slate-500">${d.total} variants</span>
+    <button id="addProd" class="btn-primary btn-sm ml-auto">+ Add product</button>
+  </div>
+  <p class="mb-3 text-xs text-slate-500">Type a new stock number and press <b>Save</b>, or use the quick <b>+5 / +10</b> buttons when a delivery arrives. Changing the price below the original price marks the item as SALE. Changes show on the website and in the chat immediately.</p>
+  <div class="card">${d.items.length ? `<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr>${["Product", "SKU", "Color", "Size", "Price (Rs)", "Stock", "Reserved", ""].map((h) => `<th class="th">${h}</th>`).join("")}</tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">${d.items.map((v) => `<tr data-row="${esc(v.sku)}">
+      <td class="td"><b>${esc(v.name)}</b><div class="text-[11px] text-slate-400">${esc(v.category)}${v.is_sale ? " · SALE" : ""}</div></td>
+      <td class="td font-mono text-xs">${esc(v.sku)}</td><td class="td">${esc(v.color)}</td><td class="td">${esc(v.size)}</td>
+      <td class="td"><input type="number" min="1" class="input w-24 py-1" data-price value="${v.price}"></td>
+      <td class="td"><div class="flex items-center gap-1"><input type="number" min="0" class="input w-20 py-1 ${v.stock <= 0 ? "border-rose-400" : v.stock <= 4 ? "border-amber-400" : ""}" data-stock value="${v.stock}">
+        <button class="chip !px-2" data-add="5">+5</button><button class="chip !px-2" data-add="10">+10</button></div></td>
+      <td class="td text-slate-500">${v.reserved || "—"}</td>
+      <td class="td"><button class="btn-primary btn-sm" data-save>Save</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="p-6 text-sm text-slate-400">No variants match.</p>`}</div>`;
+  const nav = (over = {}) => { const p = new URLSearchParams({ tab: "inventory" }); const v = { q: $("#iq").value.trim(), cat: $("#icat").value, lv, ...over }; Object.entries(v).forEach(([a, b]) => b && p.set(a, b)); location.hash = "#/admin?" + p; };
+  $("#iq").oninput = debounce(() => nav(), 500); $("#icat").onchange = () => nav();
+  $$("[data-lv]").forEach((b) => (b.onclick = () => nav({ lv: b.dataset.lv })));
+  const save = async (tr, body) => {
+    try { const v = await api("/api/admin/variants/" + encodeURIComponent(tr.dataset.row), { method: "PATCH", body });
+      $("[data-stock]", tr).value = v.stock; $("[data-price]", tr).value = v.price;
+      $("[data-stock]", tr).className = `input w-20 py-1 ${v.stock <= 0 ? "border-rose-400" : v.stock <= 4 ? "border-amber-400" : ""}`;
+      toast(`${v.name} ${v.color} ${v.size}: stock ${v.stock}, ${money(v.price)}`); } catch (e) { toast(e.message, "err"); }
+  };
+  $$("[data-row]").forEach((tr) => {
+    $("[data-save]", tr).onclick = () => save(tr, { stock: Number($("[data-stock]", tr).value), price: Number($("[data-price]", tr).value) });
+    $$("[data-add]", tr).forEach((b) => (b.onclick = () => save(tr, { add: Number(b.dataset.add) })));
+  });
+  $("#addProd").onclick = () => openAddProduct(d.categories);
+}
+
+function openAddProduct(categories) {
+  openModal(`<div class="p-7">
+    <button data-close-modal class="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close"><svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <h2 class="font-display text-2xl font-bold">Add a product</h2><p class="mt-1 text-sm text-slate-500">One SKU is created for every color × size, each with the starting stock.</p>
+    <form id="apForm" class="mt-5 grid grid-cols-2 gap-3">
+      <div class="col-span-2"><label class="label">Name</label><input id="apName" class="input" placeholder="Silk Kurta" required></div>
+      <div class="col-span-2 sm:col-span-1"><label class="label">Category</label><input id="apCat" class="input" list="apCats" placeholder="Men Kurta" required><datalist id="apCats">${categories.map((c) => `<option value="${esc(c)}">`).join("")}</datalist></div>
+      <div class="col-span-2 sm:col-span-1"><label class="label">Starting stock (each)</label><input id="apStock" type="number" min="0" value="10" class="input"></div>
+      <div><label class="label">Price (Rs)</label><input id="apPrice" type="number" min="1" class="input" placeholder="2999" required></div>
+      <div><label class="label">Original price (optional)</label><input id="apOrig" type="number" min="1" class="input" placeholder="for sale items"></div>
+      <div class="col-span-2"><label class="label">Colors (comma separated)</label><input id="apColors" class="input" placeholder="Black, White, Navy" required></div>
+      <div class="col-span-2"><label class="label">Sizes (comma separated)</label><input id="apSizes" class="input" placeholder="S, M, L, XL" required></div>
+      <div class="col-span-2"><label class="label">Description</label><textarea id="apDesc" rows="2" class="input" placeholder="Short description shown on the product page"></textarea></div>
+      <div id="apErr" class="col-span-2 text-sm font-semibold text-rose-600"></div>
+      <button class="btn-primary col-span-2">Create product</button>
+    </form></div>`, false);
+  $("#apForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const split = (s) => s.split(",").map((x) => x.trim()).filter(Boolean);
+    const body = { name: $("#apName").value.trim(), category: $("#apCat").value.trim(), description: $("#apDesc").value.trim(), price: Number($("#apPrice").value), stock: Number($("#apStock").value) || 0, colors: split($("#apColors").value), sizes: split($("#apSizes").value) };
+    if ($("#apOrig").value) body.original_price = Number($("#apOrig").value);
+    try { const r = await api("/api/admin/products", { body }); closeModal(); toast(`${r.name} added (${r.skus.length} SKUs)`); S.categories = []; route(); }
+    catch (err) { $("#apErr").textContent = Array.isArray(err.data?.detail) ? "Please fill every required field correctly." : err.message; }
+  };
 }
 const kpi = (n, l, sub = "") => `<div class="card p-4"><div class="font-display text-2xl font-bold text-brand-800 dark:text-brand-300">${n}</div><div class="text-xs font-semibold text-slate-500">${l}</div>${sub ? `<div class="mt-1 text-[11px] text-slate-400">${sub}</div>` : ""}</div>`;
 const bars = (obj, color = "bg-brand-500") => { const e = Object.entries(obj || {}).sort((a, b) => b[1] - a[1]); const mx = Math.max(1, ...e.map((x) => x[1]));

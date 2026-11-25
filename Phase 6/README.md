@@ -47,7 +47,7 @@ dialog shows this hint only while the default password is in use). Set
 | Track order | Order number + phone → status timeline, courier, tracking number, ETA |
 | My orders | Orders placed with the account's phone (web or chat) |
 | Chat (every page) | Product cards, quick-reply chips, ticket banner, staff replies, chat history kept across reloads, optional "Reasoning" view of each decision |
-| Staff console | Dashboard · Hand-offs (transcript, reply into the customer's chat, resolve) · Orders (search, filter, change status) · Evaluation & model (replay all 172 conversations, oversell race test, model scores) |
+| Staff console | Dashboard · **Insights** (sales trend, revenue by category, chat→order conversion, restock tips, out-of-stock items customers asked for, messages the bot couldn't answer) · **Inventory** (search/filter variants, set stock or +5/+10, change price, add new products) · Hand-offs (transcript, reply into the customer's chat, resolve) · Orders (search, filter, change status) · Evaluation & model |
 
 Built with Tailwind CSS (CDN, no build step) and vanilla JavaScript
 (`static/index.html`, `static/app.js`). Dark mode included.
@@ -111,7 +111,8 @@ vague requests, paraphrases).
 
 ```bash
 python evaluation.py         # replays all 172 labelled conversations (~3 s)
-python tests/test_agent.py   # 44 checks, no pytest needed
+python tests/test_agent.py           # 44 unit checks, no pytest needed
+python tests/test_conversations.py   # 112 realistic chats + inventory/insights + 1,800-message fuzz test
 python F26-07.py             # scripted demo + evaluation
 ```
 
@@ -129,7 +130,8 @@ dialogue manager, so treat this as a replay score, not a blind test.
 `GET /api/my/orders` · `GET|POST /api/reviews` — and, for staff:
 `GET /api/dashboard` · `GET /api/orders` · `PATCH /api/orders/{id}` ·
 `GET /api/escalations[/{id}]` · `POST /api/escalations/{id}/reply|resolve` ·
-`POST /api/evaluation/run` · `POST /api/test/contention` · `POST /api/reset`.
+`GET /api/admin/inventory` · `PATCH /api/admin/variants/{sku}` · `POST /api/admin/products` ·
+`GET /api/admin/insights` · `POST /api/evaluation/run` · `POST /api/test/contention` · `POST /api/reset`.
 Interactive docs at `/docs`.
 
 ## Layout

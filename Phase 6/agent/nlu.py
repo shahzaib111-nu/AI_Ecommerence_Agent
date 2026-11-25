@@ -161,7 +161,44 @@ def normalize(text):
     t = re.sub(r"\b(03\d{2})\s(\d{3})\s(\d{4})\b", r"\1\2\3", t)
     t = re.sub(r"(\d),(\d{3})", r"\1\2", t)      # 2,500 -> 2500
     t = re.sub(r"[^\w\s\-]", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"\s+", " ", t).strip()
+    # common spellings: 'cahiye', 'chaiye', 'chahie' -> 'chahiye'; 'wanna' -> 'want to'
+    t = re.sub(r"\b(chahiye|chahye|chaiye|cahiye|chahie|chahiay|chaheye|chiye|chahiya|chahyie)\b", "chahiye", t)
+    t = re.sub(r"\bwanna\b", "want to", t)
+    t = re.sub(r"\bgonna\b", "going to", t)
+    return t
+
+
+# --- things a clothing store doesn't sell / talk about -----------------------
+OUT_OF_SCOPE = re.compile(
+    r"\b(cake|pizza|burger|biryani|food|khana|khaana|bhook|bhuk|bhukh|pyaas|pani|chai|coffee|"
+    r"restaurant|grocery|groceries|medicine|dawai|doctor|hospital|weather|mausam|cricket|"
+    r"football|match score|movie|film|song|gaana|music|news|khabar|politics|election|"
+    r"homework|math|maths|recipe|car|bike|laptop|iphone|samsung|electronics|fridge|"
+    r"mobile phone|ticket booking|flight|hotel|loan|crypto|bitcoin|stock market|"
+    r"girlfriend|boyfriend|shaadi karo|rishta)s?\b")
+
+
+def out_of_scope(text):
+    """Return the off-topic word if the message is clearly not about the store."""
+    m = OUT_OF_SCOPE.search(normalize(text))
+    return m.group(1) if m else None
+
+
+def bad_phone(text):
+    """A number the customer meant as a phone, but which isn't a valid
+    Pakistani mobile (03XX-XXXXXXX). Returns the digits, or None."""
+    if extract_phone(text):
+        return None
+    raw = re.sub(r"[-\s]", "", str(text or ""))
+    t = normalize(text)
+    for m in re.finditer(r"\+?\d{6,14}", raw):
+        d = m.group(0)
+        if len(d) == 5:
+            continue
+        if re.search(r"phone|phome|fone|number|num|mobile|contact|cell|whatsapp|nmbr|no\b", t) or d.startswith("03") or d.startswith("3"):
+            return d
+    return None
 
 
 # words that are both English and Roman Urdu ('do' = give, 'to' = so, 'main' = I)
@@ -346,7 +383,7 @@ def extract_qty(text, product_names=()):
         if w == "do" and not (i == 0 or prev in ("mujhe", "humein", "hamen", "aur", "and")):
             continue
         if nxt in COLOR_WORDS or nxt in product_words or \
-                re.match(r"(order|bhej|chahiye|chahiyen|chahiyein|mangwa|de|dedo|dein|lena|lene)", nxt):
+                re.match(r"(order|bhej|chahiye|chahiyen|chahiyein|mangwa|de|dedo|dein|lena|lene|kar)", nxt):
             return n
     m = re.search(r"^\s*(\d{1,3})\s*(?:order|bhej|chahiye)", t)
     if m:
@@ -356,6 +393,11 @@ def extract_qty(text, product_names=()):
         return int(m.group(1))
     return None
 
+
+COMMON_WORDS = set("""what want wants wanna were with when where which that this then them they
+there their about have here from your yours will would should could talking talk tell show
+wala wali kuch kitna kitne liye lena dena wear wash went need just like look looking also
+more much many some same sale order bhej chahiye karna karo dikhao please thanks""".split())
 
 _TOKEN_FREQ_CACHE = {}
 
@@ -402,8 +444,11 @@ def match_product(text, product_names):
         if not toks:
             continue
         exact = [w for w in toks if w in wordset]
+        # fuzzy only against longer message words that aren't everyday words,
+        # so 'was' never becomes 'wash' and 'want' never becomes 'wear'
+        fuzzy_pool = [w for w in words if len(w) >= 4 and w not in COMMON_WORDS]
         fuzzy = [w for w in toks if w not in wordset and len(w) > 3 and
-                 difflib.get_close_matches(w, words, n=1, cutoff=0.84)]
+                 difflib.get_close_matches(w, fuzzy_pool, n=1, cutoff=0.84)]
         hit = set(exact) | set(fuzzy)
         if not hit:
             continue
@@ -530,11 +575,16 @@ def extract_name_address(text):
         if m:
             address = m.group(2).strip(" ,.")
     if not name:
-        m = re.search(r"(?:mera naam|my name is|my name|name is|i am|i'm|naam)\s*[:\-]?\s*"
-                      r"([A-Za-z][A-Za-z .]{1,40}?)(?=\s+(?:hai|hun|hoon|and|aur)\b|,|\.|\n|\d|$)",
+        m = re.search(r"(?:mera naam|my name is|my name|name is|i am|i'm|naam|name)\s*[:\-]?\s*"
+                      r"([A-Za-z][A-Za-z .]{1,40}?)(?=\s+(?:hai|hun|hoon|and|aur|phone|number|address)\b|,|\.|\n|\d|$)",
                       raw, re.I)
         if m:
             name = _clean_name(m.group(1))
+    if not name:
+        # "Abdullah naam hai", "Sara mera naam hai"
+        m = re.search(r"\b([A-Za-z][A-Za-z ]{1,30}?)\s+(?:mera\s+)?naam\s+hai\b", raw, re.I)
+        if m:
+            name = _clean_name(m.group(1).split(",")[-1])
     parts = [p.strip() for p in re.split(r"\s+-\s+|[,\n|]", raw) if p.strip()]
     if not name and phone:
         # "Ali Raza, 0300..., house 12" or "house..., Lahore - Rabia Anwar - 0343..."

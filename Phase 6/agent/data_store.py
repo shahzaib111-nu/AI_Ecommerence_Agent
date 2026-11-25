@@ -26,6 +26,10 @@ ORDER_STATUSES = ["Placed", "Packed", "Shipped", "Delivered", "Cancelled"]
 COURIERS = ["TCS", "Leopards", "M&P", "PostEx"]
 
 
+def money_fmt(n):
+    return f"Rs {int(n or 0):,}"
+
+
 def size_key(s):
     if s in SIZE_ORDER:
         return (0, SIZE_ORDER.index(s), "")
@@ -562,6 +566,146 @@ class Store:
             "recent_audit": recent_audit,
             "reviews": self.reviews_summary(),
         }
+
+    # ------------------------------------------------------------ inventory
+    def inventory(self, q=None, category=None, level=None, limit=600):
+        """Variant rows for the staff Inventory page. level: low | out | None."""
+        sql, args = "SELECT * FROM catalog WHERE 1=1", []
+        if q:
+            sql += " AND (lower(name) LIKE ? OR lower(sku) LIKE ? OR lower(color) LIKE ?)"
+            args += [f"%{q.lower()}%"] * 3
+        if category:
+            sql += " AND category=?"; args.append(category)
+        if level == "low":
+            sql += " AND stock BETWEEN 1 AND 4"
+        elif level == "out":
+            sql += " AND stock<=0"
+        with self.lock:
+            rows = [dict(r) for r in self.conn.execute(sql + " ORDER BY name,color LIMIT ?", args + [limit])]
+            res = self._reserved_map()
+        rows.sort(key=lambda r: (r["name"], r["color"], size_key(r["size"])))
+        for r in rows:
+            r["reserved"] = res.get(r["sku"], 0)
+            r["available"] = max(0, r["stock"] - r["reserved"])
+            r["is_sale"] = bool(r["is_sale"])
+        return rows
+
+    def update_variant(self, sku, stock=None, add=None, price=None, original_price=None):
+        """Set or add stock, change price. Returns the updated row or None."""
+        v = self.variant(sku)
+        if not v:
+            return None
+        sets, args = [], []
+        if stock is not None:
+            sets.append("stock=?"); args.append(max(0, int(stock)))
+        elif add:
+            sets.append("stock=MAX(0, stock+?)"); args.append(int(add))
+        if price is not None:
+            sets.append("price=?"); args.append(max(1, int(price)))
+            op = original_price if original_price is not None else max(v["original_price"], int(price))
+            sets.append("original_price=?"); args.append(int(op))
+            sets.append("is_sale=?"); args.append(1 if int(op) > int(price) else 0)
+        if not sets:
+            return v
+        with self.lock:
+            self.conn.execute(f"UPDATE catalog SET {', '.join(sets)} WHERE sku=?", args + [sku])
+        return self.variant(sku)
+
+    def add_product(self, name, category, description, price, colors, sizes, stock,
+                    original_price=None):
+        """Create a product with one SKU per color x size. Returns product_id + skus."""
+        name = " ".join(name.split()).title()
+        with self.lock:
+            if self.conn.execute("SELECT 1 FROM catalog WHERE lower(name)=lower(?)", (name,)).fetchone():
+                raise ValueError("A product with this name already exists — add stock to it instead.")
+            ids = [r["product_id"] for r in self.conn.execute("SELECT DISTINCT product_id FROM catalog")]
+            nxt = max([int(i[1:]) for i in ids if i[1:].isdigit()] or [0]) + 1
+            pid = f"P{nxt:03d}"
+            skus = [r["sku"] for r in self.conn.execute("SELECT sku FROM catalog")]
+            n = max([int(s[3:]) for s in skus if s[3:].isdigit()] or [0])
+            op = int(original_price or price)
+            rows = []
+            for c in colors:
+                for sz in sizes:
+                    n += 1
+                    rows.append((f"SKU{n:04d}", pid, name, category, c.strip().title(), sz.strip().upper()
+                                 if len(sz.strip()) <= 3 else sz.strip().title(), op, int(price),
+                                 int(stock), 1 if op > int(price) else 0, description))
+            self.conn.executemany("INSERT INTO catalog VALUES(?,?,?,?,?,?,?,?,?,?,?)", rows)
+        return {"product_id": pid, "name": name, "skus": [r[0] for r in rows]}
+
+    def insights(self):
+        """Owner-facing business insights computed from orders, chats and stock."""
+        with self.lock:
+            c = self.conn
+            daily = [dict(r) for r in c.execute(
+                "SELECT order_date d, COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders "
+                "WHERE status!='Cancelled' AND order_date >= date((SELECT MAX(order_date) FROM orders), '-13 day') "
+                "GROUP BY order_date ORDER BY order_date")]
+            by_cat = [dict(r) for r in c.execute(
+                "SELECT cat.category, COUNT(*) orders, SUM(o.qty) units, SUM(o.total) rev FROM orders o "
+                "JOIN catalog cat ON cat.sku=o.sku WHERE o.status!='Cancelled' "
+                "GROUP BY cat.category ORDER BY rev DESC")]
+            by_channel = {r["ch"]: {"orders": r["n"], "revenue": r["rev"]} for r in c.execute(
+                "SELECT COALESCE(channel,'seed') ch, COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders "
+                "WHERE status!='Cancelled' GROUP BY ch")}
+            conv = c.execute("SELECT COUNT(*) n FROM conversations WHERE session_id NOT LIKE 'web-checkout%'").fetchone()["n"]
+            chat_buyers = c.execute(
+                "SELECT COUNT(DISTINCT session_id) n FROM orders WHERE channel='chat'").fetchone()["n"]
+            totals = c.execute("SELECT COUNT(*) n, COALESCE(SUM(total),0) rev FROM orders "
+                               "WHERE status!='Cancelled'").fetchone()
+            out_n = c.execute("SELECT COUNT(*) n FROM catalog WHERE stock<=0").fetchone()["n"]
+            low_n = c.execute("SELECT COUNT(*) n FROM catalog WHERE stock BETWEEN 1 AND 4").fetchone()["n"]
+            audits = [dict(r) for r in c.execute(
+                "SELECT action, detail, ts FROM audit WHERE action IN ('unanswered','stockout_demand') "
+                "ORDER BY id DESC LIMIT 500")]
+            esc = {r["reason"]: r["n"] for r in c.execute(
+                "SELECT reason, COUNT(*) n FROM escalations GROUP BY reason ORDER BY n DESC")}
+            open_esc = c.execute("SELECT COUNT(*) n FROM escalations WHERE status='open'").fetchone()["n"]
+        demand, unanswered = {}, []
+        for a in audits:
+            try:
+                d = json.loads(a["detail"])
+            except ValueError:
+                continue
+            if a["action"] == "stockout_demand":
+                k = f"{d['product']} · {d['color']} · {d['size']}"
+                demand[k] = demand.get(k, 0) + 1
+            elif d.get("message"):
+                unanswered.append({"message": d["message"], "kind": d.get("kind"), "ts": a["ts"]})
+        demand = sorted(({"variant": k, "requests": v} for k, v in demand.items()), key=lambda x: -x["requests"])
+        aov = round(totals["rev"] / totals["n"]) if totals["n"] else 0
+        conversion = round(100 * chat_buyers / conv, 1) if conv else 0.0
+        tips = []
+        if demand:
+            tips.append({"level": "warn", "title": "Restock what customers ask for",
+                         "text": f"{demand[0]['variant']} was requested {demand[0]['requests']}× while out of stock."})
+        if out_n:
+            tips.append({"level": "warn", "title": f"{out_n} variants are out of stock",
+                         "text": "Open Inventory → filter 'Out of stock' to restock them."})
+        if low_n:
+            tips.append({"level": "info", "title": f"{low_n} variants are running low",
+                         "text": "They have 1–4 pieces left; restock before they sell out."})
+        if esc:
+            top = next(iter(esc))
+            tips.append({"level": "info", "title": "Most common hand-off",
+                         "text": f"{top.replace('_', ' ')} ({esc[top]}×). "
+                                 + ("Consider a clearer discount/sale message on the site." if "discount" in top else
+                                    "Review these tickets to see if a policy update would help.")})
+        if open_esc:
+            tips.append({"level": "warn", "title": f"{open_esc} customer(s) waiting for staff",
+                         "text": "Reply from Hand-offs — your answer appears in their chat."})
+        if unanswered:
+            tips.append({"level": "info", "title": "Questions the assistant couldn't answer",
+                         "text": f"{len(unanswered)} recent messages were unclear or off-topic — see the list below."})
+        if by_cat:
+            tips.append({"level": "ok", "title": "Best-selling category",
+                         "text": f"{by_cat[0]['category']} — {money_fmt(by_cat[0]['rev'])} from {by_cat[0]['units']} units."})
+        return {"kpis": {"orders": totals["n"], "revenue": totals["rev"], "avg_order_value": aov,
+                         "conversations": conv, "chat_orders": chat_buyers, "chat_conversion_percent": conversion,
+                         "out_of_stock": out_n, "low_stock": low_n, "open_handoffs": open_esc},
+                "daily": daily, "by_category": by_cat, "by_channel": by_channel,
+                "stockout_demand": demand[:10], "unanswered": unanswered[:15], "tips": tips}
 
     # ------------------------------------------------------------- accounts
     def create_user(self, name, email, phone, password):

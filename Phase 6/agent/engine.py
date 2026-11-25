@@ -57,8 +57,12 @@ RECOMMEND_CUES = (r"suggest|recommend|recommendation|options?\b|best seller|best
 EXPLICIT_BROWSE = (r"catalog|catalogue|collection|categor|products|kya kya|what do you (sell|have)|"
                    r"kya bechte|everything|sab dikhao|new arrivals|aap ke paas kya|what is available|"
                    r"whats available|kya available|list|browse|sale items|on sale|\bsale\b")
-FOLLOWUP_CUES = (r"what about|how about|and in|aur\b|available|stock|\bhai\b|price|rate|kitne|"
-                 r"kitna|milega|mil jayega|in \w+\?|\?|colors?|sizes?")
+# a follow-up about the product in context must actually ask about it —
+# a bare 'hai' or '?' is not enough ('bhuk lagi hai' is not about a handbag)
+FOLLOWUP_CUES = (r"what about|how about|and in\b|\bavailable\b|\bstock\b|\bprice\b|\brate\b|kitne ka|"
+                 r"kitni ka|kitne ki|milega|mil jayega|\bcolou?rs?\b|\bsizes?\b|\bfabric\b|"
+                 r"\bdetails?\b|\bdescribe\b|\bthis one\b|\bye wala\b|\bis it\b")
+MANY_RE = r"\b(each|every|all|sab|saare|sare|sabhi|both|dono|everything)\b"
 GREETING_RE = (r"(hi+|hey+|hello+|helo|hy|salam|salaam|assalam[a-z ]*|asalam[a-z ]*|aoa|"
                r"good (morning|evening|afternoon)|adaab|yo)\b")
 SALAM_RE = r"^(salam|salaam|assalam|asalam|aoa|as salam)"
@@ -330,6 +334,11 @@ class Engine:
             else:
                 return self._escalate(sid, s, reason, "escalation", entities, message, hit[1])
 
+        # ---- 3b. clearly not about the store ('chocolate cake', 'bhuk lagi hai')
+        oos = nlu.out_of_scope(message)
+        if oos and not (e["product"] or e["types"] or e["order_id"] or e["details"]["phone"]):
+            return self._out_of_scope(sid, s, oos, entities)
+
         # ---- 4. intent
         intent, conf, route = self._detect_intent(t, e, s, ml_intent, ml_conf, message)
 
@@ -375,6 +384,8 @@ class Engine:
             return self._browse(sid, s, e, t, entities)
         if intent == "check_stock":
             return self._stock(sid, s, e, t, entities)
+        if intent == "pick_from_list":
+            return self._pick_from_list(sid, s, e, t, entities)
         if intent in ("place_order", "provide_details") and \
                 (s["stage"] == "order_details" or intent == "place_order"):
             return self._order_flow(sid, s, e, t, message, entities)
@@ -404,8 +415,13 @@ class Engine:
             question = ("?" in message or re.search(r"\b(what|kya|how|kitne|kitna|do you|can i|kab)\b", t)) \
                 and detect_topic(t) and not (d["phone"] or d["address"])
             if awaiting == "details" and not question and (d["phone"] or d["address"] or d["city"] or d["name"]
-                                                           or self._bare_name(message)):
+                                                           or self._bare_name(message) or nlu.bad_phone(message)):
                 return "provide_details", 0.95, "slot:details"
+            # 'I was talking about kurta' — a different kind of product than the cart
+            cur = s["items"][0]["product"] if s["items"] else None
+            if e["types"] and not e["product"] and cur and not nlu.product_matches_filters(
+                    cur, (self.store.variants_of(cur) or [{}])[0].get("category", ""), e["types"]):
+                return "browse", 0.85, "rule:switch_type"
             if e["product"] and order_words:
                 return "place_order", 0.9, "rule:new_product_order"
             if ("same" in wset or e["qty"]) and s["items"] and not e["budget"]:
@@ -454,6 +470,14 @@ class Engine:
         if topic and not e["product"] and not (order_words and topic in ("delivery_general",)):
             if topic not in ("sale",) or not re.search(r"dikha|show", t):
                 return "policy_question", 0.9, "rule:policy_topic:" + topic
+
+        # -- choosing from the list just shown ('buy this one', 'each of them')
+        if s.get("shown") and not e["product"] and s["last_action"] in ("browse", "recommend", "request_missing_info") \
+                and (order_words or re.search(MANY_RE, t) or re.search(r"\b(buy|want|lena|le lo)\b", t)) \
+                and not e["types"] and not e["budget"]:
+            return "pick_from_list", 0.85, "rule:pick_from_list"
+        if s.get("awaiting") == "pick" and e["product"]:
+            return "place_order", 0.9, "rule:picked"
 
         # -- a specific product
         if e["product"]:
@@ -675,6 +699,8 @@ class Engine:
 
     def _unclear(self, sid, s, t, message, entities):
         s["unclear"] += 1
+        if message:
+            self.store.audit(sid, "unanswered", {"kind": "unclear", "message": message[:200]})
         if s["unclear"] >= 2:
             return self._escalate(sid, s, "unclear_after_two_attempts", "unknown", entities,
                                   message, "unclear after two clarification attempts")
@@ -713,6 +739,36 @@ class Engine:
         return self._out(sid, s, answer + self._flow_hint(s), "policy_question", "answer_policy", 0.85,
                          "ACT", tools=tools, entities=entities, suggestions=sugg)
 
+    def _out_of_scope(self, sid, s, word, entities):
+        reply = self._say(
+            s, [f"I'm only the shopping assistant for Saira Fashion House, so I can't help with {word} 🙂 "
+                "But I can show you clothes, shoes and accessories, check sizes, or track an order. What would you like?",
+                f"Ha, {word} isn't something we sell — we're a clothing store! Want to see kurtas, suits, "
+                "footwear or our winter collection?"],
+            ["Main sirf Saira Fashion House ka shopping assistant hoon, is mein madad nahi kar sakta 🙂 "
+             "Lekin kapre, shoes, accessories dikha sakta hoon, size check kar sakta hoon ya order track kar sakta hoon.",
+             "Ye to hum nahi bechte — hum kapron ki dukaan hain! Kurte, suits, shoes ya winter "
+             "collection dikhaun?"])
+        self.store.audit(sid, "unanswered", {"kind": "out_of_scope", "word": word,
+                                             "message": self._last_text(sid)[:200]})
+        return self._out(sid, s, reply, "out_of_scope", "smalltalk", 0.9, "ASK",
+                         reason="out_of_scope", entities=entities,
+                         suggestions=self._default_suggestions(s), reminder=True)
+
+    def _pick_from_list(self, sid, s, e, t, entities):
+        shown = s.get("shown") or []
+        s["awaiting"] = "pick"
+        if re.search(MANY_RE, t):
+            reply = self._say(s, "Happy to! Let's add them one at a time so each gets the right color and size. "
+                                 "Which one first?",
+                              "Zaroor! Ek ek kar ke add karte hain taake har ek ka sahi color aur size ho. "
+                              "Pehle konsa?")
+        else:
+            reply = self._say(s, "Which one would you like? Tap one below or type its name.",
+                              "Konsa wala chahiye? Neeche tap karein ya naam likh dein.")
+        return self._out(sid, s, reply, "place_order", "request_missing_info", 0.8, "ASK",
+                         reason="pick_from_list", entities=entities, suggestions=shown[:5])
+
     # ---------------------------------------------------------- browse / recs
     def _card(self, p):
         return {k: p.get(k) for k in ("product_id", "name", "category", "price", "original_price",
@@ -740,6 +796,12 @@ class Engine:
         tools = [{"name": "browse_catalog", "result": {"filters": filters, "gender": gender,
                                                         "sale_only": sale_only, "matches": len(allp)}}]
         s["rec"] = {"filters": filters, "gender": gender, "shown": [p["name"] for p in shown]}
+        # a new list replaces whatever single product was being discussed
+        s["context"] = {}
+        s["shown"] = [p["name"] for p in shown]
+        if s["stage"] == "order_details" and s["_route"] == "rule:switch_type":
+            self.store.release(sid)
+            s["stage"] = None; s["items"] = []; s["awaiting"] = None
         if not shown:
             reply = self._say(s, "I couldn't find anything matching that in our catalog. Want to see all categories?",
                               "Is tarah ka koi product catalog mein nahi mila. Saari categories dikhaun?")
@@ -786,6 +848,9 @@ class Engine:
             recs = self.tools.recommend_products(budget, filters, gender, mode, limit=5)
         s["rec"] = {"budget": budget, "mode": mode, "filters": filters, "gender": gender,
                     "shown": list(dict.fromkeys(exclude + [r["name"] for r in recs]))}
+        if recs:
+            s["context"] = {}
+            s["shown"] = [r["name"] for r in recs]
         tools = [{"name": "recommend_products",
                   "result": {"count": len(recs), "budget": budget, "mode": mode,
                              "filters": filters, "gender": gender, "relaxed_budget": relaxed}}]
@@ -913,6 +978,8 @@ class Engine:
             sugg = (["Haan order kar do", "Doosre colors?"] if s.get("lang") == "ur"
                     else ["Yes, order 1", "Other colors?"])
         else:
+            self.store.audit(sid, "stockout_demand", {"sku": res["sku"], "product": res["product"],
+                                                      "color": res["color"], "size": res["size"]})
             alts = res.get("alternatives", [])
             alt_txt = "; ".join(f"{a['color']} {a['size']} ({a['available']} left)" for a in alts)
             reply = self._say(s, f"Sorry, {res['product']} {res['color']} size {res['size']} is out of stock (0 available)."
@@ -1156,10 +1223,27 @@ class Engine:
             nm = self._bare_name(message)
             if nm:
                 cust["name"] = nm
+        bad = nlu.bad_phone(message) if not d.get("phone") else None
+        # a free-text address: has a number AND real words, and isn't a phone number
+        addr_words = [w for w in re.findall(r"[a-z]{3,}", t)
+                      if w not in ("phone", "phome", "number", "mobile", "address", "mera", "meri",
+                                   "hai", "naam", "name", "and", "aur", "city")]
         if s.get("awaiting") == "details" and not cust.get("address") and not d.get("address") \
                 and cust.get("name") and len(t) >= 6 and not d.get("name") and not d.get("phone") \
-                and not e["qty"] and not self._bare_name(message) and re.search(r"\d", t):
+                and not bad and not e["qty"] and not self._bare_name(message) \
+                and re.search(r"\d", t) and len(addr_words) >= 1:
             cust["address"] = message.strip()
+        if bad:
+            s["awaiting"] = "details"
+            got = ", ".join(f"{k}: {cust[k]}" for k in ("name", "address", "city") if cust.get(k))
+            reply = self._say(s, f"Hmm, {bad} doesn't look like a valid mobile number — Pakistani numbers have 11 "
+                                 "digits and start with 03, like 03001234567. Could you send it again?"
+                                 + (f" (I've noted {got}.)" if got else ""),
+                              f"{bad} sahi mobile number nahi lag raha — Pakistani number 11 digits ka hota hai aur "
+                              "03 se shuru hota hai, jaise 03001234567. Dobara bhej dein?"
+                              + (f" ({got} note kar liya hai.)" if got else ""))
+            return self._out(sid, s, reply, "place_order", "request_missing_info", 0.85, "ASK",
+                             reason="invalid_phone", entities=entities)
 
         # ---- validate every item
         for it in s["items"]:
@@ -1232,7 +1316,7 @@ class Engine:
         missing = [k for k in ("name", "phone", "address", "city") if not cust.get(k)]
         if missing:
             s["awaiting"] = "details"
-            labels_en = {"name": "your name", "phone": "phone number", "address": "full address", "city": "city"}
+            labels_en = {"name": "name", "phone": "phone number", "address": "full address", "city": "city"}
             labels_ur = {"name": "naam", "phone": "phone number", "address": "poora address", "city": "city"}
             have = [k for k in ("name", "phone", "address", "city") if cust.get(k)]
             if len(missing) == 4:
@@ -1243,7 +1327,8 @@ class Engine:
             else:
                 got = ", ".join(f"{k}: {cust[k]}" for k in have)
                 reply = self._say(s, f"Thanks{' ' + cust['name'].split()[0] if cust.get('name') else ''}! Got {got}. "
-                                     f"Now please share your {' and '.join(labels_en[k] for k in missing)}.",
+                                     f"Now please share your {', '.join(labels_en[k] for k in missing[:-1])}"
+                                     f"{' and ' if len(missing) > 1 else ''}{labels_en[missing[-1]]}.",
                                   f"Shukriya! {got} note kar liya. Ab apna {' aur '.join(labels_ur[k] for k in missing)} "
                                   "bata dein.")
             return self._out(sid, s, reply, "place_order", "request_missing_info", 0.85, "ASK",

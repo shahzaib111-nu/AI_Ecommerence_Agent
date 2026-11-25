@@ -363,6 +363,66 @@ def resolve(esc_id: int, _=Depends(require_admin)):
     return {"resolved": ok, "id": esc_id}
 
 
+class VariantIn(BaseModel):
+    stock: int | None = Field(None, ge=0, le=100000)
+    add: int | None = Field(None, ge=-100000, le=100000)
+    price: int | None = Field(None, ge=1, le=10_000_000)
+    original_price: int | None = Field(None, ge=1, le=10_000_000)
+
+
+class ProductIn(BaseModel):
+    name: str = Field(..., min_length=3, max_length=60)
+    category: str = Field(..., min_length=3, max_length=40)
+    description: str = Field("", max_length=400)
+    price: int = Field(..., ge=1, le=10_000_000)
+    original_price: int | None = Field(None, ge=1, le=10_000_000)
+    colors: list[str] = Field(..., min_length=1, max_length=12)
+    sizes: list[str] = Field(..., min_length=1, max_length=12)
+    stock: int = Field(0, ge=0, le=100000)
+
+
+@app.get("/api/admin/inventory")
+def inventory(q: str | None = None, category: str | None = None, level: str | None = None,
+              _=Depends(require_admin)):
+    rows = store.inventory(q, category, level if level in ("low", "out") else None)
+    return {"items": rows, "total": len(rows), "categories": [c["category"] for c in store.categories()]}
+
+
+@app.patch("/api/admin/variants/{sku}")
+def update_variant(sku: str, body: VariantIn, user=Depends(require_admin)):
+    if body.stock is None and not body.add and body.price is None:
+        return err("nothing to change")
+    v = store.update_variant(sku, body.stock, body.add, body.price, body.original_price)
+    if not v:
+        return err("SKU not found", 404)
+    store.audit(None, "inventory_update", {"sku": sku, **body.model_dump(exclude_none=True), "by": user["email"]})
+    v["available"] = store.available(sku)
+    return v
+
+
+@app.post("/api/admin/products")
+def add_product(body: ProductIn, user=Depends(require_admin)):
+    colors = [c.strip() for c in body.colors if c.strip()]
+    sizes = [s.strip() for s in body.sizes if s.strip()]
+    if not colors or not sizes:
+        return err("Add at least one color and one size.")
+    if body.original_price and body.original_price < body.price:
+        return err("Original price can't be lower than the selling price.")
+    try:
+        res = store.add_product(body.name, body.category.strip(), body.description.strip(), body.price,
+                                colors, sizes, body.stock, body.original_price)
+    except ValueError as e:
+        return err(str(e), 409)
+    engine._names = None          # the chat can find the new product immediately
+    store.audit(None, "product_added", {"product_id": res["product_id"], "name": res["name"], "by": user["email"]})
+    return res
+
+
+@app.get("/api/admin/insights")
+def insights(_=Depends(require_admin)):
+    return store.insights()
+
+
 @app.get("/api/model")
 def model_info(_=Depends(require_admin)):
     import json
